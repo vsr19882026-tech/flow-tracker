@@ -3,9 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-07-09"
 compatibility_flags = ["nodejs_compat"]
 
-# Route the Worker at the tracker subdomain of the course domain (zone: shravyalabs.com)
+# Attach the Worker to the tracker subdomain as a Custom Domain
+# (auto-provisions the DNS record + managed SSL cert).
 routes = [
-  { pattern = "tracker.shravyalabs.com/*", zone_name = "shravyalabs.com" }
+  { pattern = "tracker.shravyalabs.com", custom_domain = true }
 ]
 
 # Outbound transactional email (magic-link sign-in). Restricted to the verified destination.
