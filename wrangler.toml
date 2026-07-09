@@ -1,0 +1,34 @@
+name = "flow-tracker"
+main = "src/index.ts"
+compatibility_date = "2026-07-09"
+compatibility_flags = ["nodejs_compat"]
+
+# Route the Worker at the tracker subdomain of the course domain (zone: shravyalabs.com)
+routes = [
+  { pattern = "tracker.shravyalabs.com/*", zone_name = "shravyalabs.com" }
+]
+
+# Outbound transactional email (magic-link sign-in). Restricted to the verified destination.
+send_email = [
+  { name = "EMAIL", destination_address = "vsr19882026@gmail.com" }
+]
+
+[observability]
+enabled = true
+
+# D1 — primary relational store
+[[d1_databases]]
+binding = "DB"
+database_name = "issues-prod"
+database_id = "d32ac579-9af3-4212-b047-a1fabc098071"
+
+# KV — cache namespace (id = production, preview_id = local/preview)
+[[kv_namespaces]]
+binding = "CACHE"
+id = "e5d9e1cc197140d0a6b43358b4136809"
+preview_id = "7ca69988803645bc8f7c3b135ba1491f"
+
+# R2 — issue attachments
+[[r2_buckets]]
+binding = "ATTACHMENTS"
+bucket_name = "issue-attachments"
