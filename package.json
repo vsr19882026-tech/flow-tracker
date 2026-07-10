@@ -17,6 +17,11 @@
     "wrangler": "^4.107.1"
   },
   "dependencies": {
-    "hono": "^4.12.28"
+    "@better-auth/kysely-adapter": "^1.6.23",
+    "better-auth": "^1.6.23",
+    "hono": "^4.12.28",
+    "kysely": "^0.28.17",
+    "kysely-d1": "^0.4.0",
+    "mimetext": "^3.0.28"
   }
 }
