@@ -156,3 +156,62 @@ describe('GET /issues', () => {
 		expect(body).toEqual([]);
 	});
 });
+
+describe('PATCH /issues/:issue_number', () => {
+	// Seed a single issue with a known number, status, and updated_at.
+	async function seedIssue(issueNumber: number, status = 'open', updatedAt = 1000) {
+		await env.DB.prepare(
+			`INSERT INTO issues (id, reporter_id, title, status, issue_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		)
+			.bind(`issue_${issueNumber}`, USER_ID, `Issue ${issueNumber}`, status, issueNumber, 1000, updatedAt)
+			.run();
+	}
+
+	const patch = (n: number | string, body: unknown, auth = true) =>
+		SELF.fetch(`http://tracker.test/issues/${n}`, {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json', ...(auth ? { cookie: AUTH_COOKIE } : {}) },
+			body: JSON.stringify(body),
+		});
+
+	it('1. returns 401 when no session cookie', async () => {
+		const res = await patch(1, { status: 'done' }, false);
+		expect(res.status).toBe(401);
+	});
+
+	it('2. returns 404 when the issue_number does not exist', async () => {
+		const res = await patch(999, { status: 'done' });
+		expect(res.status).toBe(404);
+	});
+
+	it('3. returns 400 when status is missing', async () => {
+		await seedIssue(1);
+		const res = await patch(1, {});
+		expect(res.status).toBe(400);
+	});
+
+	it('4. returns 400 when status is not a valid value', async () => {
+		await seedIssue(1);
+		const res = await patch(1, { status: 'wontfix' });
+		expect(res.status).toBe(400);
+	});
+
+	it('5. returns 200 with the updated body when moving open -> in_progress', async () => {
+		await seedIssue(1, 'open');
+		const res = await patch(1, { status: 'in_progress' });
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as Record<string, unknown>;
+		expect(body).toMatchObject({ id: 'issue_1', issue_number: 1, title: 'Issue 1', status: 'in_progress' });
+	});
+
+	it('6. persists the status and a new updated_at to D1', async () => {
+		await seedIssue(1, 'open', 1000);
+		await patch(1, { status: 'done' });
+		const row = await env.DB.prepare('SELECT status, updated_at FROM issues WHERE issue_number = 1').first<{
+			status: string;
+			updated_at: number;
+		}>();
+		expect(row!.status).toBe('done');
+		expect(row!.updated_at).toBeGreaterThan(1000);
+	});
+});
