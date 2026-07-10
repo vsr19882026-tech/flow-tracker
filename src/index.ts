@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { createAuth, emailGuard } from './auth';
+import issues from './routes/issues';
 
 // BETTER_AUTH_SECRET is a Worker secret (set via `wrangler secret put`), so it
 // isn't in the wrangler-generated Env. Merge it into the global Bindings type.
@@ -80,5 +81,8 @@ app.get('/whoami', (c) => {
 	}
 	return c.json({ user: { id: user.id, email: user.email } });
 });
+
+// Issues feature — the session middleware above has already resolved c.get('user').
+app.route('/issues', issues);
 
 export default app;

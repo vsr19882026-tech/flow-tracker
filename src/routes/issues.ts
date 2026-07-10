@@ -1,0 +1,56 @@
+import { Hono } from 'hono';
+
+// Same shape the session middleware in index.ts sets via c.set('user', ...).
+type Variables = {
+	user: { id: string; email: string } | null;
+};
+
+const issues = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// POST /issues — create an issue for the signed-in user.
+issues.post('/', async (c) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	let body: { title?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		body = {};
+	}
+	const title = typeof body.title === 'string' ? body.title.trim() : '';
+	if (!title) {
+		return c.json({ error: 'title is required' }, 400);
+	}
+
+	const id = crypto.randomUUID();
+	const status = 'open';
+	const now = Date.now();
+
+	// issue_number auto-increments from the current max; RETURNING hands back the
+	// value the subquery resolved to, in a single round-trip.
+	const row = await c.env.DB.prepare(
+		`INSERT INTO issues (id, reporter_id, title, status, issue_number, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(issue_number), 0) + 1 FROM issues), ?, ?)
+		 RETURNING issue_number`,
+	)
+		.bind(id, user.id, title, status, now, now)
+		.first<{ issue_number: number }>();
+
+	return c.json({ id, issue_number: row!.issue_number, title, status });
+});
+
+// GET /issues — list all issues, newest issue_number first.
+issues.get('/', async (c) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const { results } = await c.env.DB.prepare('SELECT * FROM issues ORDER BY issue_number DESC').all();
+	return c.json(results);
+});
+
+export default issues;
