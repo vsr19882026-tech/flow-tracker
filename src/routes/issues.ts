@@ -53,4 +53,43 @@ issues.get('/', async (c) => {
 	return c.json(results);
 });
 
+const VALID_STATUSES = ['open', 'in_progress', 'done'];
+
+// PATCH /issues/:issue_number — change an issue's status.
+issues.patch('/:issue_number', async (c) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const issueNumber = Number(c.req.param('issue_number'));
+	if (!Number.isInteger(issueNumber)) {
+		return c.json({ error: 'Not found' }, 404);
+	}
+
+	let body: { status?: unknown };
+	try {
+		body = await c.req.json();
+	} catch {
+		body = {};
+	}
+	// Validate against the same set as the DB CHECK constraint, so a bad value is
+	// a clean 400 rather than a 500 from the constraint.
+	if (typeof body.status !== 'string' || !VALID_STATUSES.includes(body.status)) {
+		return c.json({ error: "status must be one of 'open', 'in_progress', 'done'" }, 400);
+	}
+
+	const row = await c.env.DB.prepare(
+		`UPDATE issues SET status = ?, updated_at = ? WHERE issue_number = ?
+		 RETURNING id, issue_number, title, status`,
+	)
+		.bind(body.status, Date.now(), issueNumber)
+		.first<{ id: string; issue_number: number; title: string; status: string }>();
+
+	if (!row) {
+		return c.json({ error: 'Not found' }, 404);
+	}
+	return c.json(row);
+});
+
 export default issues;
