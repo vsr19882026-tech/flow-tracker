@@ -72,4 +72,13 @@ app.get('/', (c) => {
 	return c.text(user ? `Flow Tracker — signed in as ${user.email}` : 'Flow Tracker');
 });
 
+// Session probe: 200 with the user when the session cookie resolves, else 401.
+app.get('/whoami', (c) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+	return c.json({ user: { id: user.id, email: user.email } });
+});
+
 export default app;
