@@ -1,0 +1,8 @@
+# flow-tracker — Codex config. CLIs only, no MCP servers.
+#
+# The agent operates entirely through wrangler + gh + git. There are
+# intentionally NO [mcp_servers] blocks: Cloudflare's MCP server would add an
+# OAuth token to rotate, a process to babysit, and a schema that drifts behind
+# the Wrangler CLI. Wrangler is the source of truth. See CLAUDE.md / AGENTS.md.
+
+# No MCP servers by design — do not add [mcp_servers.*] tables here.
