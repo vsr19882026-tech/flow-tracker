@@ -7,11 +7,14 @@
     "dev": "wrangler dev",
     "start": "wrangler dev",
     "test": "vitest",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.12.4",
     "@types/node": "^26.1.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
     "typescript": "^5.5.2",
     "vitest": "~3.2.0",
     "wrangler": "^4.107.1"

@@ -32,7 +32,10 @@ These are non-negotiable. Do not violate them even if asked casually.
 - **No `try/except` / `try/catch`.** Code the happy path only. On error,
   raise/throw and let it propagate. Do not swallow errors.
 - **Never `git push --force`** (nor `--force-with-lease`) to any branch.
-- **Never bypass hooks or CI.** No `--no-verify`, no skipping required checks.
+- **Never bypass hooks or CI.** No `--no-verify` on `git commit` or
+  `git push`, no skipping required checks. The husky hooks are mandatory:
+  pre-commit type-checks staged TS (`tsc --noEmit` via lint-staged), pre-push
+  runs the test suite. If a hook fails, fix the code — never disable the hook.
 - **Migrations are remote.** Apply schema with
   `wrangler d1 migrations apply issues-prod --remote`. Never use `--local`.
 - **All DB writes go through versioned migrations.** Every schema change is a
@@ -70,6 +73,8 @@ reproducible in CI and on a clean machine with no server setup.
 - `src/routes/<feature>.ts` — one Hono sub-app per feature.
 - `src/routes/<feature>.test.ts` — co-located contract tests.
 - `migrations/NNNN_*.sql` — versioned D1 migrations.
+- `.husky/` — git hooks (pre-commit type-check, pre-push tests).
+- `lint-staged.config.mjs` — runs `tsc --noEmit` when TS is staged.
 
 ## Conventions
 
