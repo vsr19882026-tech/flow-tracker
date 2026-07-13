@@ -51,13 +51,20 @@ These are non-negotiable. Do not violate them even if asked casually.
 2. Write the failing test (TDD red).
 3. Implement until green: `npm test -- --run`.
 4. Typecheck: `npx wrangler types && npx tsc --noEmit`.
-5. Open a PR with `gh`, wait for CI green, merge.
-6. Deploy: `wrangler versions upload` then `wrangler versions deploy <id>@100`.
+5. Diff-review: `git diff main | node .github/scripts/diff-review.mjs`. Fix
+   every finding before opening the PR — the same check gates the PR in CI.
+6. Open a PR with `gh`, wait for CI green, merge.
+7. Deploy: `wrangler versions upload` then `wrangler versions deploy <id>@100`.
 
 ## Tooling
 
 - **`wrangler`** for all Cloudflare operations (deploy, D1, KV, R2, secrets).
 - **`gh`** for all GitHub operations (PRs, CI status, merges).
+- **`diff-review`** — the `diff-review` sub-agent (`.claude/agents/diff-review.md`)
+  reviews the working diff before a ship; the `.github/workflows/diff-review.yml`
+  Action runs the same checker (`.github/scripts/diff-review.mjs`) on every PR and
+  posts line-anchored comments. Both fail on ghost imports, D1 schema drift,
+  Better Auth misuse, hallucinated `env.X` bindings, or forbidden patterns.
 - **No MCP servers.** See §MCP avoidance.
 - **Permissions** are pinned in `.claude/settings.json`: a wrangler/gh/git
   allow-list, and a deny-list for `--force`, `--no-verify`, `git reset --hard`,
@@ -78,6 +85,9 @@ reproducible in CI and on a clean machine with no server setup.
 - `src/routes/<feature>.ts` — one Hono sub-app per feature.
 - `src/routes/<feature>.test.ts` — co-located contract tests.
 - `migrations/NNNN_*.sql` — versioned D1 migrations.
+- `.github/scripts/diff-review.mjs` — the diff-review checker (shared by the
+  sub-agent and the PR Action).
+- `.claude/agents/diff-review.md` — the `diff-review` sub-agent.
 - `.husky/` — git hooks (pre-commit type-check, pre-push tests).
 - `lint-staged.config.mjs` — runs `tsc --noEmit` when TS is staged.
 

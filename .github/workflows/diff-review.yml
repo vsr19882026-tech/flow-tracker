@@ -1,0 +1,73 @@
+name: diff-review
+
+# Static review of every PR against the flow-tracker project rules. Runs the
+# same checker the `diff-review` sub-agent runs locally before /ship, so the
+# verdict is identical. Findings surface as line-anchored PR review comments and
+# as inline annotations; any finding fails the check.
+
+on:
+  pull_request:
+
+# Cancel a stale run when new commits are pushed to the same PR.
+concurrency:
+  group: diff-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so we can diff the PR head against its base branch.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build the PR diff
+        run: |
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          git diff "origin/${{ github.base_ref }}...HEAD" > pr.diff
+          echo "Changed files:"; git diff --name-only "origin/${{ github.base_ref }}...HEAD"
+
+      # The checker exits non-zero on findings. Let the run continue so we can
+      # post the comments first, then gate the job on the recorded outcome.
+      - name: Run diff-review
+        id: review
+        continue-on-error: true
+        run: node .github/scripts/diff-review.mjs --diff pr.diff --json findings.json
+
+      - name: Post findings as inline PR review comments
+        if: always() && hashFiles('findings.json') != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          count=$(jq 'length' findings.json)
+          if [ "$count" -eq 0 ]; then
+            echo "No findings to comment."
+            exit 0
+          fi
+          jq '{
+            event: "COMMENT",
+            body: ("diff-review found \(length) issue(s). See inline comments."),
+            comments: [ .[] | {
+              path: .file,
+              line: .line,
+              side: "RIGHT",
+              body: ("**diff-review [\(.rule)]** \(.message)")
+            } ]
+          }' findings.json > review.json
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" --input review.json
+
+      - name: Fail if diff-review found issues
+        if: always() && steps.review.outcome == 'failure'
+        run: |
+          echo "diff-review reported findings — see the annotations and PR comments above."
+          exit 1
