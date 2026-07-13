@@ -98,4 +98,13 @@ app.get('/whoami', (c) => {
 // Issues feature — the session middleware above has already resolved c.get('user').
 app.route('/issues', issues);
 
+// Surface unhandled errors instead of silently turning them into a 500 body.
+// Log the method + path + message to Workers Logs, then rethrow so the runtime
+// records an exception outcome — that is what `wrangler tail --status error`
+// (and the /tail command) filters on. The client still gets a 500.
+app.onError((err, c) => {
+	console.error(JSON.stringify({ event: 'unhandled_error', method: c.req.method, path: c.req.path, error: err.message }));
+	throw err;
+});
+
 export default app;

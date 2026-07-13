@@ -71,6 +71,11 @@ These are non-negotiable. Do not violate them even if asked casually.
   and posts them as an **advisory** comment. It never blocks a merge and is
   dormant until an `OPENAI_API_KEY` repo secret is set (no key → runs green,
   posts nothing).
+- **`/tail`** — slash command (`.claude/commands/tail.md`) that tails prod
+  error invocations for ~60s and summarizes distinct signatures, counts, and the
+  suspected route. Unhandled errors reach it because `app.onError` (`src/index.ts`)
+  logs and **rethrows** — `wrangler tail --status error` filters on the exception
+  outcome, so errors must propagate, not be swallowed into a 500 body.
 - **No MCP servers.** See §MCP avoidance.
 - **Permissions** are pinned in `.claude/settings.json`: a wrangler/gh/git
   allow-list, and a deny-list for `--force`, `--no-verify`, `git reset --hard`,
