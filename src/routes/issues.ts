@@ -14,12 +14,9 @@ issues.post('/', async (c) => {
 		return c.json({ error: 'Unauthorized' }, 401);
 	}
 
-	let body: { title?: unknown };
-	try {
-		body = await c.req.json();
-	} catch {
-		body = {};
-	}
+	// Malformed JSON throws and propagates (see app.onError) — the happy path
+	// assumes a JSON body, per the project's no-try/catch rule.
+	const body = (await c.req.json()) as { title?: unknown };
 	const title = typeof body.title === 'string' ? body.title.trim() : '';
 	if (!title) {
 		return c.json({ error: 'title is required' }, 400);
@@ -67,12 +64,8 @@ issues.patch('/:issue_number', async (c) => {
 		return c.json({ error: 'Not found' }, 404);
 	}
 
-	let body: { status?: unknown };
-	try {
-		body = await c.req.json();
-	} catch {
-		body = {};
-	}
+	// Malformed JSON throws and propagates (see app.onError).
+	const body = (await c.req.json()) as { status?: unknown };
 	// Validate against the same set as the DB CHECK constraint, so a bad value is
 	// a clean 400 rather than a 500 from the constraint.
 	if (typeof body.status !== 'string' || !VALID_STATUSES.includes(body.status)) {
