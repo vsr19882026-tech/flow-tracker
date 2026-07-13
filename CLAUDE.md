@@ -59,6 +59,9 @@ These are non-negotiable. Do not violate them even if asked casually.
 - **`wrangler`** for all Cloudflare operations (deploy, D1, KV, R2, secrets).
 - **`gh`** for all GitHub operations (PRs, CI status, merges).
 - **No MCP servers.** See §MCP avoidance.
+- **Permissions** are pinned in `.claude/settings.json`: a wrangler/gh/git
+  allow-list, and a deny-list for `--force`, `--no-verify`, `git reset --hard`,
+  and `rm -rf` outside `node_modules`/`.wrangler`.
 
 ### §MCP avoidance
 
