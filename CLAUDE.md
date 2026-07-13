@@ -37,7 +37,9 @@ These are non-negotiable. Do not violate them even if asked casually.
   pre-commit type-checks staged TS (`tsc --noEmit` via lint-staged), pre-push
   runs the test suite. If a hook fails, fix the code — never disable the hook.
 - **Migrations are remote.** Apply schema with
-  `wrangler d1 migrations apply issues-prod --remote`. Never use `--local`.
+  `wrangler d1 migrations apply issues-prod --remote`. Never apply with
+  `--local` — the one exception is CI's throwaway dry-run gate, which applies
+  migrations to a clean local D1 to validate SQL and never touches prod.
 - **All DB writes go through versioned migrations.** Every schema change is a
   new file `migrations/NNNN_*.sql` (zero-padded, monotonic). No ad-hoc DDL.
 - **Every new route gets a failing test first.** Write the contract test in
