@@ -5,8 +5,36 @@ on:
   pull_request:
 
 jobs:
+  # Highest-risk change surface: gate migrations before anything else runs.
+  migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so we can diff the PR against its base branch.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Gate 1 — append-only, sequential naming. PR events only (needs a base).
+      - name: Validate migration files
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/validate-migrations.sh "origin/${{ github.base_ref }}"
+
+      # Gate 2 — apply every migration to a clean local D1 (miniflare). Invalid
+      # SQL, or SQLite features D1 does not support, fail here and block the PR.
+      - name: Dry-run migrations on a clean local D1
+        run: npx wrangler d1 migrations apply issues-prod --local
+
   build-and-test:
     runs-on: ubuntu-latest
+    needs: migrations
     steps:
       - uses: actions/checkout@v4
 
