@@ -215,3 +215,5 @@ describe('PATCH /issues/:issue_number', () => {
 		expect(row!.updated_at).toBeGreaterThan(1000);
 	});
 });
+
+// ship smoke: no-op comment to exercise /ship (S16 verify)
