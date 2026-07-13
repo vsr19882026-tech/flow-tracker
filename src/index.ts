@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { createAuth, emailGuard } from './auth';
+import { checkMagicLinkRateLimit } from './rate-limit';
 import issues from './routes/issues';
 
 // BETTER_AUTH_SECRET is a Worker secret (set via `wrangler secret put`), so it
@@ -60,6 +61,18 @@ app.on(['POST', 'GET'], '/auth/*', async (c) => {
 		} catch {
 			email = undefined;
 		}
+		// Rate-limit the endpoint before doing any work (allowlist check, email
+		// send). Runs first so abuse is throttled regardless of email validity.
+		const ip = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? 'unknown';
+		const rl = await checkMagicLinkRateLimit(c.env.CACHE, email ?? 'unknown', ip);
+		if (rl.limited) {
+			// Workers Logs: surface the email + IP + count on every throttled hit.
+			console.warn(
+				JSON.stringify({ event: 'magic_link_rate_limited', scope: rl.scope, email: rl.email, ip: rl.ip, count: rl.count }),
+			);
+			return c.json({ error: 'Too many requests. Try again later.' }, 429, { 'Retry-After': String(rl.retryAfter) });
+		}
+
 		const blocked = emailGuard(email);
 		if (blocked) return blocked;
 	}
