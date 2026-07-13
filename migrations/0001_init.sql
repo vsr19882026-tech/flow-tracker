@@ -13,3 +13,5 @@ CREATE TABLE issues (
   updated_at   INTEGER NOT NULL,
   UNIQUE(issue_number)
 );
+
+-- tampering with a shipped migration (S18 verify)
