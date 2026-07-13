@@ -102,8 +102,15 @@ app.route('/issues', issues);
 // Log the method + path + message to Workers Logs, then rethrow so the runtime
 // records an exception outcome — that is what `wrangler tail --status error`
 // (and the /tail command) filters on. The client still gets a 500.
+//
+// The rethrow re-enters onError at each Hono mounted-app / middleware boundary
+// it bubbles through, so tag the error and log only the first time we see it.
 app.onError((err, c) => {
-	console.error(JSON.stringify({ event: 'unhandled_error', method: c.req.method, path: c.req.path, error: err.message }));
+	const tagged = err as Error & { logged?: boolean };
+	if (!tagged.logged) {
+		tagged.logged = true;
+		console.error(JSON.stringify({ event: 'unhandled_error', method: c.req.method, path: c.req.path, error: err.message }));
+	}
 	throw err;
 });
 

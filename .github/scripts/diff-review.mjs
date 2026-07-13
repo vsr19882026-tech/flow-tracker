@@ -273,13 +273,16 @@ function checkSchemaDrift(file, line, text) {
 
 // -- Check 3: Better Auth misuse ---------------------------------------------
 function checkBetterAuth(file, line, text) {
-	if (/\bauth\.session\b/.test(text) && file !== MIDDLEWARE_FILE) {
+	// Require `auth` to not be preceded by a word char, dot, or hyphen, so the
+	// Better Auth cookie name (`better-auth.session`) and member accesses like
+	// `x.auth.session` don't false-positive — only a standalone `auth.session`.
+	if (/(?<![\w.-])auth\.session\b/.test(text) && file !== MIDDLEWARE_FILE) {
 		report(file, line, 'better-auth', 'reads `auth.session` outside the session middleware (src/index.ts)');
 	}
 	// `auth.user` accessed without a null guard on the same line. Optional
 	// chaining (auth.user?.x), a `!auth.user` guard, or an `auth.user &&` /
 	// `auth.user ?` guard all count as guarded.
-	for (const _ of text.matchAll(/\bauth\.user\b(?!\?\.)/g)) {
+	for (const _ of text.matchAll(/(?<![\w.-])auth\.user\b(?!\?\.)/g)) {
 		const guarded = /!auth\.user\b/.test(text) || /\bauth\.user\s*(?:&&|\?|===?|!==?)/.test(text);
 		if (!guarded) {
 			report(file, line, 'better-auth', 'accesses `auth.user` without a null check');
