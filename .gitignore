@@ -165,3 +165,6 @@ dist
 .env*
 !.env.example
 .wrangler/
+
+# stray artifact from second-opinion.sh (Codex stderr)
+second-opinion.err

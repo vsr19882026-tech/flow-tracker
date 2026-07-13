@@ -65,6 +65,12 @@ These are non-negotiable. Do not violate them even if asked casually.
   Action runs the same checker (`.github/scripts/diff-review.mjs`) on every PR and
   posts line-anchored comments. Both fail on ghost imports, D1 schema drift,
   Better Auth misuse, hallucinated `env.X` bindings, or forbidden patterns.
+  This check is **blocking**.
+- **`second-opinion`** — the `.github/workflows/second-opinion.yml` Action asks
+  Codex (`.github/scripts/second-opinion.sh`) for the top ship risks on every PR
+  and posts them as an **advisory** comment. It never blocks a merge and is
+  dormant until an `OPENAI_API_KEY` repo secret is set (no key → runs green,
+  posts nothing).
 - **No MCP servers.** See §MCP avoidance.
 - **Permissions** are pinned in `.claude/settings.json`: a wrangler/gh/git
   allow-list, and a deny-list for `--force`, `--no-verify`, `git reset --hard`,
@@ -88,6 +94,7 @@ reproducible in CI and on a clean machine with no server setup.
 - `.github/scripts/diff-review.mjs` — the diff-review checker (shared by the
   sub-agent and the PR Action).
 - `.claude/agents/diff-review.md` — the `diff-review` sub-agent.
+- `.github/scripts/second-opinion.sh` — the advisory Codex PR reviewer.
 - `.husky/` — git hooks (pre-commit type-check, pre-push tests).
 - `lint-staged.config.mjs` — runs `tsc --noEmit` when TS is staged.
 

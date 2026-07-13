@@ -1,0 +1,64 @@
+name: second-opinion
+
+# An advisory second opinion on every PR from Codex, playing the 2am on-call
+# engineer. It comments the top risks on the PR but NEVER blocks the merge —
+# the job always succeeds. It is dormant until an OPENAI_API_KEY secret is set;
+# with no key it runs green and posts nothing. This complements the blocking
+# diff-review check (deterministic rules) with a reasoning model's judgement.
+
+on:
+  pull_request:
+
+concurrency:
+  group: second-opinion-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  second-opinion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build the PR diff
+        run: |
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          git diff "origin/${{ github.base_ref }}...HEAD" > pr.diff
+          echo "diff bytes: $(wc -c < pr.diff)"
+
+      - name: Codex second opinion
+        id: op
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # The script is advisory and always exits 0; `|| true` is belt-and-braces.
+          bash .github/scripts/second-opinion.sh pr.diff > review.md || true
+          if [ -s review.md ]; then
+            echo "has_review=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_review=false" >> "$GITHUB_OUTPUT"
+            echo "No review produced (dormant or empty) — not commenting."
+          fi
+
+      - name: Comment the second opinion on the PR
+        if: steps.op.outputs.has_review == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## 🌙 second-opinion — advisory (does not block merge)"
+            echo
+            echo "_Codex, reviewing this diff as the on-call engineer at 2am._"
+            echo
+            cat review.md
+          } > comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file comment.md
