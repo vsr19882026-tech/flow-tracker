@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { createAuth, emailGuard } from './auth';
 import { checkMagicLinkRateLimit } from './rate-limit';
 import issues from './routes/issues';
+import attachments from './routes/attachments';
 
 // BETTER_AUTH_SECRET is a Worker secret (set via `wrangler secret put`), so it
 // isn't in the wrangler-generated Env. Merge it into the global Bindings type.
@@ -97,6 +98,9 @@ app.get('/whoami', (c) => {
 
 // Issues feature — the session middleware above has already resolved c.get('user').
 app.route('/issues', issues);
+
+// Attachments feature — mounted under the issue path so :issue_number is in scope.
+app.route('/issues/:issue_number/attachments', attachments);
 
 // Surface unhandled errors instead of silently turning them into a 500 body.
 // Log the method + path + message to Workers Logs, then rethrow so the runtime

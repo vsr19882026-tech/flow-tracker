@@ -35,7 +35,7 @@ import { join, dirname, resolve } from 'node:path';
 // Worker secrets are supplied via `wrangler secret put`, not wrangler.toml, so
 // they can never be discovered from config. List the known ones here; add a
 // line whenever a new secret is introduced.
-const KNOWN_SECRETS = ['BETTER_AUTH_SECRET'];
+const KNOWN_SECRETS = ['BETTER_AUTH_SECRET', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'];
 
 // Node builtins and Cloudflare virtual modules are always importable.
 const NODE_BUILTINS = new Set([

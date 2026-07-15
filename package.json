@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@better-auth/kysely-adapter": "^1.6.23",
+    "aws4fetch": "^1.0.20",
     "better-auth": "^1.6.23",
     "hono": "^4.12.28",
     "kysely": "^0.28.17",
