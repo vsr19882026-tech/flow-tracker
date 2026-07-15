@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { createAuth, emailGuard } from './auth';
 import { checkMagicLinkRateLimit } from './rate-limit';
+import { log } from './log';
 import issues from './routes/issues';
 import attachments from './routes/attachments';
 import comments from './routes/comments';
@@ -16,9 +17,24 @@ declare global {
 
 type Variables = {
 	user: { id: string; email: string } | null;
+	requestId: string;
+	logStart: number;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Structured request logging (outermost, so it times and tags everything).
+// Assign a request id, stamp the start, and emit request.started on entry and
+// request.completed on exit with duration + status. An uncaught throw skips the
+// completed line and is logged as request.errored by app.onError below.
+app.use('*', async (c, next) => {
+	c.set('requestId', crypto.randomUUID());
+	const start = Date.now();
+	c.set('logStart', start);
+	log(c, 'info', 'request.started', { method: c.req.method });
+	await next();
+	log(c, 'info', 'request.completed', { method: c.req.method, duration_ms: Date.now() - start, status: c.res.status });
+});
 
 // Session middleware. Auth routes are public (you can't have a session before
 // signing in); every other route gets a session looked up directly from D1.
@@ -70,9 +86,7 @@ app.on(['POST', 'GET'], '/auth/*', async (c) => {
 		const rl = await checkMagicLinkRateLimit(c.env.CACHE, email ?? 'unknown', ip);
 		if (rl.limited) {
 			// Workers Logs: surface the email + IP + count on every throttled hit.
-			console.warn(
-				JSON.stringify({ event: 'magic_link_rate_limited', scope: rl.scope, email: rl.email, ip: rl.ip, count: rl.count }),
-			);
+			log(c, "warn", "magic_link_rate_limited", { scope: rl.scope, email: rl.email, ip: rl.ip, count: rl.count });
 			return c.json({ error: 'Too many requests. Try again later.' }, 429, { 'Retry-After': String(rl.retryAfter) });
 		}
 
@@ -122,7 +136,13 @@ app.onError((err, c) => {
 	const tagged = err as Error & { logged?: boolean };
 	if (!tagged.logged) {
 		tagged.logged = true;
-		console.error(JSON.stringify({ event: 'unhandled_error', method: c.req.method, path: c.req.path, error: err.message }));
+		const start = (c.get('logStart') as number | undefined) ?? Date.now();
+		log(c, 'error', 'request.errored', {
+			method: c.req.method,
+			duration_ms: Date.now() - start,
+			error_name: err.name,
+			error_message: err.message,
+		});
 	}
 	throw err;
 });
