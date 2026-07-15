@@ -15,6 +15,7 @@ const AUTH_COOKIE = `better-auth.session=${SESSION_TOKEN}`;
 // Apply a clean schema + a seeded authenticated session before each test.
 beforeEach(async () => {
 	const db = env.DB;
+	await db.exec('DROP TABLE IF EXISTS comments');
 	await db.exec('DROP TABLE IF EXISTS issues');
 	await db.exec('DROP TABLE IF EXISTS session');
 	await db.exec('DROP TABLE IF EXISTS user');
@@ -27,6 +28,7 @@ beforeEach(async () => {
 				email TEXT NOT NULL UNIQUE,
 				emailVerified INTEGER NOT NULL DEFAULT 0,
 				image TEXT,
+				role TEXT NOT NULL DEFAULT 'member',
 				createdAt TEXT NOT NULL,
 				updatedAt TEXT NOT NULL
 			)`,
@@ -54,10 +56,23 @@ beforeEach(async () => {
 				title TEXT NOT NULL,
 				description TEXT,
 				status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','in_progress','done')),
+				priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low','medium','high')),
 				issue_number INTEGER NOT NULL,
+				project_id TEXT,
 				created_at INTEGER NOT NULL,
 				updated_at INTEGER NOT NULL,
 				UNIQUE(issue_number)
+			)`,
+		)
+		.run();
+	await db
+		.prepare(
+			`CREATE TABLE comments (
+				id TEXT PRIMARY KEY,
+				issue_id TEXT NOT NULL REFERENCES issues(id),
+				author_id TEXT NOT NULL REFERENCES "user"(id),
+				body TEXT NOT NULL,
+				created_at INTEGER NOT NULL
 			)`,
 		)
 		.run();
@@ -258,6 +273,101 @@ describe('GET /issues/:issue_number', () => {
 
 	it('4. returns 404 when the issue_number is not numeric', async () => {
 		const res = await get('abc');
+		expect(res.status).toBe(404);
+	});
+});
+
+describe('issue detail + rich PATCH', () => {
+	const ADMIN_ID = 'user_admin_1';
+	const ADMIN_TOKEN = 'admin-session-token';
+	const ADMIN_COOKIE = `better-auth.session=${ADMIN_TOKEN}`;
+	const OTHER_ID = 'user_other_1';
+	const OTHER_TOKEN = 'other-session-token';
+	const OTHER_COOKIE = `better-auth.session=${OTHER_TOKEN}`;
+
+	// Seed an extra user with a chosen role plus a far-future session.
+	async function seedUser(id: string, email: string, role: string, token: string) {
+		await env.DB.prepare(
+			`INSERT INTO "user" (id, name, email, emailVerified, role, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?, ?)`,
+		)
+			.bind(id, id, email, role, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+			.run();
+		await env.DB.prepare(
+			`INSERT INTO "session" (id, userId, token, expiresAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`,
+		)
+			.bind(`sess_${id}`, id, token, '2999-12-31T23:59:59.999Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+			.run();
+	}
+
+	// Seed an issue owned by USER_ID with a known uuid + number.
+	async function seedIssue(uuid: string, issueNumber: number, reporterId = USER_ID) {
+		await env.DB.prepare(
+			`INSERT INTO issues (id, reporter_id, title, description, status, priority, issue_number, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		)
+			.bind(uuid, reporterId, `Issue ${issueNumber}`, 'orig desc', 'open', 'medium', issueNumber, 1000, 1000)
+			.run();
+	}
+
+	const patch = (n: number | string, body: unknown, cookie?: string) =>
+		SELF.fetch(`http://tracker.test/issues/${n}`, {
+			method: 'PATCH',
+			headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+			body: JSON.stringify(body),
+		});
+
+	it('1. GET returns the issue plus its comments oldest-first', async () => {
+		await seedIssue('issue_uuid_1', 1);
+		await env.DB.prepare(`INSERT INTO comments (id, issue_id, author_id, body, created_at) VALUES (?, ?, ?, ?, ?)`)
+			.bind('c_2', 'issue_uuid_1', USER_ID, 'second', 2000)
+			.run();
+		await env.DB.prepare(`INSERT INTO comments (id, issue_id, author_id, body, created_at) VALUES (?, ?, ?, ?, ?)`)
+			.bind('c_1', 'issue_uuid_1', USER_ID, 'first', 1000)
+			.run();
+
+		const res = await SELF.fetch('http://tracker.test/issues/1', { headers: { cookie: AUTH_COOKIE } });
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { id: string; comments: Array<{ id: string; body: string }> };
+		expect(body.id).toBe('issue_uuid_1');
+		expect(body.comments.map((cm) => cm.body)).toEqual(['first', 'second']);
+	});
+
+	it('2. PATCH by the reporter updates title+description+status+priority and persists', async () => {
+		await seedIssue('issue_uuid_1', 1);
+		const res = await patch(1, { title: 'New title', description: 'New desc', status: 'done', priority: 'high' }, AUTH_COOKIE);
+		expect(res.status).toBe(200);
+
+		const row = await env.DB.prepare('SELECT title, description, status, priority FROM issues WHERE issue_number = 1').first<{
+			title: string;
+			description: string;
+			status: string;
+			priority: string;
+		}>();
+		expect(row).toMatchObject({ title: 'New title', description: 'New desc', status: 'done', priority: 'high' });
+	});
+
+	it('3. PATCH by an admin who is not the reporter succeeds', async () => {
+		await seedIssue('issue_uuid_1', 1);
+		await seedUser(ADMIN_ID, 'admin@example.com', 'admin', ADMIN_TOKEN);
+		const res = await patch(1, { status: 'in_progress' }, ADMIN_COOKIE);
+		expect(res.status).toBe(200);
+	});
+
+	it('4. PATCH by a non-reporter non-admin is forbidden', async () => {
+		await seedIssue('issue_uuid_1', 1);
+		await seedUser(OTHER_ID, 'other@example.com', 'member', OTHER_TOKEN);
+		const res = await patch(1, { status: 'in_progress' }, OTHER_COOKIE);
+		expect(res.status).toBe(403);
+	});
+
+	it('5. PATCH with an invalid priority is a 400', async () => {
+		await seedIssue('issue_uuid_1', 1);
+		const res = await patch(1, { status: 'open', priority: 'urgent' }, AUTH_COOKIE);
+		expect(res.status).toBe(400);
+	});
+
+	it('6. PATCH of an unknown issue_number is a 404', async () => {
+		const res = await patch(999, { status: 'done' }, AUTH_COOKIE);
 		expect(res.status).toBe(404);
 	});
 });
