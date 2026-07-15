@@ -83,10 +83,13 @@ app.on(['POST', 'GET'], '/auth/*', async (c) => {
 		// Rate-limit the endpoint before doing any work (allowlist check, email
 		// send). Runs first so abuse is throttled regardless of email validity.
 		const ip = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? 'unknown';
+		// Log every attempt (email + IP) so sign-in volume per email is queryable in
+		// Workers Logs — this is what the abuse query in docs/logs-queries.md counts.
+		log(c, 'info', 'magic_link.requested', { email: email?.toLowerCase() ?? 'unknown', ip });
 		const rl = await checkMagicLinkRateLimit(c.env.CACHE, email ?? 'unknown', ip);
 		if (rl.limited) {
 			// Workers Logs: surface the email + IP + count on every throttled hit.
-			log(c, "warn", "magic_link_rate_limited", { scope: rl.scope, email: rl.email, ip: rl.ip, count: rl.count });
+			log(c, 'warn', 'magic_link_rate_limited', { scope: rl.scope, email: rl.email, ip: rl.ip, count: rl.count });
 			return c.json({ error: 'Too many requests. Try again later.' }, 429, { 'Retry-After': String(rl.retryAfter) });
 		}
 

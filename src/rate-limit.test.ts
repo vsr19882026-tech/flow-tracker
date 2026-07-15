@@ -1,5 +1,5 @@
 import { env, SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { checkMagicLinkRateLimit, MAGIC_LINK_EMAIL_LIMIT, RATE_LIMIT_WINDOW_MS } from './rate-limit';
 
 // A fixed timestamp comfortably inside one hour bucket. Passing `now` explicitly
@@ -69,5 +69,24 @@ describe('POST /auth/sign-in/magic-link rate limit (route)', () => {
 		const sixth = await post();
 		expect(sixth.status).toBe(429);
 		expect(sixth.headers.get('Retry-After')).toBeTruthy();
+	});
+
+	it('logs a magic_link.requested event with the lowercased email on each attempt', async () => {
+		const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+		// A disallowed email is guarded (403) AFTER the attempt is logged, so the
+		// attempt log fires regardless of the allowlist outcome.
+		await SELF.fetch('http://tracker.test/auth/sign-in/magic-link', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.7' },
+			body: JSON.stringify({ email: 'Abuse@Example.com' }),
+		});
+		const requested = spy.mock.calls
+			.map((call) => call[0])
+			.filter((arg): arg is Record<string, unknown> => typeof arg === 'object' && arg !== null && 'event' in arg)
+			.filter((l) => l.event === 'magic_link.requested');
+		spy.mockRestore();
+		expect(requested.length).toBe(1);
+		expect(requested[0].email).toBe('abuse@example.com');
+		expect(requested[0].ip).toBe('198.51.100.7');
 	});
 });
