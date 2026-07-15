@@ -58,6 +58,7 @@ beforeEach(async () => {
 				status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','in_progress','done')),
 				priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low','medium','high')),
 				issue_number INTEGER NOT NULL,
+				project_id TEXT,
 				created_at INTEGER NOT NULL,
 				updated_at INTEGER NOT NULL,
 				UNIQUE(issue_number)
