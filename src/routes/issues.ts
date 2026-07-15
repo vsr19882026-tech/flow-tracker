@@ -16,10 +16,26 @@ issues.post('/', async (c) => {
 
 	// Malformed JSON throws and propagates (see app.onError) — the happy path
 	// assumes a JSON body, per the project's no-try/catch rule.
-	const body = (await c.req.json()) as { title?: unknown };
+	const body = (await c.req.json()) as { title?: unknown; project_id?: unknown };
 	const title = typeof body.title === 'string' ? body.title.trim() : '';
 	if (!title) {
 		return c.json({ error: 'title is required' }, 400);
+	}
+
+	// An issue may optionally belong to a project. When a project_id is supplied,
+	// it must exist (404) and be owned by the caller (403) before we link it.
+	let projectId: string | null = null;
+	if (typeof body.project_id === 'string') {
+		const project = await c.env.DB.prepare('SELECT owner_id FROM projects WHERE id = ?')
+			.bind(body.project_id)
+			.first<{ owner_id: string }>();
+		if (!project) {
+			return c.json({ error: 'Not found' }, 404);
+		}
+		if (project.owner_id !== user.id) {
+			return c.json({ error: 'Forbidden' }, 403);
+		}
+		projectId = body.project_id;
 	}
 
 	const id = crypto.randomUUID();
@@ -29,14 +45,14 @@ issues.post('/', async (c) => {
 	// issue_number auto-increments from the current max; RETURNING hands back the
 	// value the subquery resolved to, in a single round-trip.
 	const row = await c.env.DB.prepare(
-		`INSERT INTO issues (id, reporter_id, title, status, issue_number, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(issue_number), 0) + 1 FROM issues), ?, ?)
+		`INSERT INTO issues (id, reporter_id, title, status, project_id, issue_number, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(issue_number), 0) + 1 FROM issues), ?, ?)
 		 RETURNING issue_number`,
 	)
-		.bind(id, user.id, title, status, now, now)
+		.bind(id, user.id, title, status, projectId, now, now)
 		.first<{ issue_number: number }>();
 
-	return c.json({ id, issue_number: row!.issue_number, title, status });
+	return c.json({ id, issue_number: row!.issue_number, title, status, project_id: projectId });
 });
 
 // GET /issues — list all issues, newest issue_number first.
@@ -62,16 +78,23 @@ issues.get('/:issue_number', async (c) => {
 		return c.json({ error: 'Not found' }, 404);
 	}
 
-	const row = await c.env.DB.prepare('SELECT * FROM issues WHERE issue_number = ?').bind(issueNumber).first();
+	const row = await c.env.DB.prepare('SELECT * FROM issues WHERE issue_number = ?').bind(issueNumber).first<{ id: string }>();
 	if (!row) {
 		return c.json({ error: 'Not found' }, 404);
 	}
-	return c.json(row);
+
+	// Attach the issue's comments, oldest-first. comments.issue_id references the
+	// issue's uuid (issues.id), not its issue_number.
+	const { results: comments } = await c.env.DB.prepare('SELECT * FROM comments WHERE issue_id = ? ORDER BY created_at ASC')
+		.bind(row.id)
+		.all();
+	return c.json({ ...row, comments });
 });
 
 const VALID_STATUSES = ['open', 'in_progress', 'done'];
+const VALID_PRIORITIES = ['low', 'medium', 'high'];
 
-// PATCH /issues/:issue_number — change an issue's status.
+// PATCH /issues/:issue_number — update any of title/description/status/priority.
 issues.patch('/:issue_number', async (c) => {
 	const user = c.get('user');
 	if (!user) {
@@ -84,23 +107,62 @@ issues.patch('/:issue_number', async (c) => {
 	}
 
 	// Malformed JSON throws and propagates (see app.onError).
-	const body = (await c.req.json()) as { status?: unknown };
-	// Validate against the same set as the DB CHECK constraint, so a bad value is
-	// a clean 400 rather than a 500 from the constraint.
-	if (typeof body.status !== 'string' || !VALID_STATUSES.includes(body.status)) {
+	const body = (await c.req.json()) as { title?: unknown; description?: unknown; status?: unknown; priority?: unknown };
+
+	// Validate enum fields against the same sets as the DB CHECK constraints, so a
+	// bad value is a clean 400 rather than a 500 from the constraint — before any DB.
+	if (body.status !== undefined && (typeof body.status !== 'string' || !VALID_STATUSES.includes(body.status))) {
 		return c.json({ error: "status must be one of 'open', 'in_progress', 'done'" }, 400);
 	}
+	if (body.priority !== undefined && (typeof body.priority !== 'string' || !VALID_PRIORITIES.includes(body.priority))) {
+		return c.json({ error: "priority must be one of 'low', 'medium', 'high'" }, 400);
+	}
 
-	const row = await c.env.DB.prepare(
-		`UPDATE issues SET status = ?, updated_at = ? WHERE issue_number = ?
-		 RETURNING id, issue_number, title, status`,
-	)
-		.bind(body.status, Date.now(), issueNumber)
-		.first<{ id: string; issue_number: number; title: string; status: string }>();
+	// Collect only the provided fields into a dynamic UPDATE set.
+	const sets: string[] = [];
+	const values: unknown[] = [];
+	if (typeof body.title === 'string') {
+		sets.push('title = ?');
+		values.push(body.title);
+	}
+	if (typeof body.description === 'string') {
+		sets.push('description = ?');
+		values.push(body.description);
+	}
+	if (typeof body.status === 'string') {
+		sets.push('status = ?');
+		values.push(body.status);
+	}
+	if (typeof body.priority === 'string') {
+		sets.push('priority = ?');
+		values.push(body.priority);
+	}
+	if (sets.length === 0) {
+		return c.json({ error: 'no updatable fields provided' }, 400);
+	}
 
-	if (!row) {
+	// Load the issue to authorize the change (404 for unknown).
+	const issue = await c.env.DB.prepare('SELECT reporter_id FROM issues WHERE issue_number = ?')
+		.bind(issueNumber)
+		.first<{ reporter_id: string }>();
+	if (!issue) {
 		return c.json({ error: 'Not found' }, 404);
 	}
+
+	// Only the reporter or an admin may update. Role lives on the Better Auth
+	// "user" table; the shared middleware exposes just {id,email}, so read it here.
+	const userRow = await c.env.DB.prepare('SELECT role FROM "user" WHERE id = ?').bind(user.id).first<{ role: string }>();
+	if (issue.reporter_id !== user.id && userRow?.role !== 'admin') {
+		return c.json({ error: 'Forbidden' }, 403);
+	}
+
+	sets.push('updated_at = ?');
+	values.push(Date.now());
+	values.push(issueNumber);
+
+	const row = await c.env.DB.prepare(`UPDATE issues SET ${sets.join(', ')} WHERE issue_number = ? RETURNING *`)
+		.bind(...values)
+		.first();
 	return c.json(row);
 });
 

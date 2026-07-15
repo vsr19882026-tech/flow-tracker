@@ -3,6 +3,7 @@ import { createAuth, emailGuard } from './auth';
 import { checkMagicLinkRateLimit } from './rate-limit';
 import issues from './routes/issues';
 import comments from './routes/comments';
+import projects from './routes/projects';
 
 // BETTER_AUTH_SECRET is a Worker secret (set via `wrangler secret put`), so it
 // isn't in the wrangler-generated Env. Merge it into the global Bindings type.
@@ -98,6 +99,9 @@ app.get('/whoami', (c) => {
 
 // Issues feature — the session middleware above has already resolved c.get('user').
 app.route('/issues', issues);
+
+// Projects feature — same resolved session; issues can be linked to a project.
+app.route('/projects', projects);
 
 // Comments feature — mounted with the :issue_number param so the sub-app can
 // read it and resolve the issue's uuid for comments.issue_id.
