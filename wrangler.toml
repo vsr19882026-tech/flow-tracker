@@ -29,6 +29,13 @@ binding = "CACHE"
 id = "e5d9e1cc197140d0a6b43358b4136809"
 preview_id = "7ca69988803645bc8f7c3b135ba1491f"
 
+# KV — reserved for search indexing (S3). Bound now so it lands with the schema
+# choke-point; no code reads it yet.
+[[kv_namespaces]]
+binding = "SEARCH"
+id = "34762e291f794b3195fb5e6af1048a1f"
+preview_id = "e2296b656b0d43ca9dfad0af71629c74"
+
 # R2 — issue attachments
 [[r2_buckets]]
 binding = "ATTACHMENTS"
