@@ -216,4 +216,50 @@ describe('PATCH /issues/:issue_number', () => {
 	});
 });
 
+describe('GET /issues/:issue_number', () => {
+	// Seed a single issue with a known number and reporter.
+	async function seedIssue(issueNumber: number, status = 'open') {
+		await env.DB.prepare(
+			`INSERT INTO issues (id, reporter_id, title, status, issue_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		)
+			.bind(`issue_${issueNumber}`, USER_ID, `Issue ${issueNumber}`, status, issueNumber, 1000, 1000)
+			.run();
+	}
+
+	const get = (n: number | string, auth = true) =>
+		SELF.fetch(`http://tracker.test/issues/${n}`, {
+			headers: { ...(auth ? { cookie: AUTH_COOKIE } : {}) },
+		});
+
+	it('1. returns 401 when no session cookie', async () => {
+		await seedIssue(1);
+		const res = await get(1, false);
+		expect(res.status).toBe(401);
+	});
+
+	it('2. returns 404 when the issue_number does not exist', async () => {
+		const res = await get(999);
+		expect(res.status).toBe(404);
+	});
+
+	it('3. returns 200 with the full issue row when it exists', async () => {
+		await seedIssue(1, 'in_progress');
+		const res = await get(1);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as Record<string, unknown>;
+		expect(body).toMatchObject({
+			id: 'issue_1',
+			issue_number: 1,
+			title: 'Issue 1',
+			status: 'in_progress',
+			reporter_id: USER_ID,
+		});
+	});
+
+	it('4. returns 404 when the issue_number is not numeric', async () => {
+		const res = await get('abc');
+		expect(res.status).toBe(404);
+	});
+});
+
 // ship smoke: no-op comment to exercise /ship (S16 verify)

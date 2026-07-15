@@ -50,6 +50,25 @@ issues.get('/', async (c) => {
 	return c.json(results);
 });
 
+// GET /issues/:issue_number — read a single issue by its number.
+issues.get('/:issue_number', async (c) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const issueNumber = Number(c.req.param('issue_number'));
+	if (!Number.isInteger(issueNumber)) {
+		return c.json({ error: 'Not found' }, 404);
+	}
+
+	const row = await c.env.DB.prepare('SELECT * FROM issues WHERE issue_number = ?').bind(issueNumber).first();
+	if (!row) {
+		return c.json({ error: 'Not found' }, 404);
+	}
+	return c.json(row);
+});
+
 const VALID_STATUSES = ['open', 'in_progress', 'done'];
 
 // PATCH /issues/:issue_number — change an issue's status.
