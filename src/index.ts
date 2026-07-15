@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { createAuth, emailGuard } from './auth';
 import { checkMagicLinkRateLimit } from './rate-limit';
 import issues from './routes/issues';
+import comments from './routes/comments';
 import projects from './routes/projects';
 
 // BETTER_AUTH_SECRET is a Worker secret (set via `wrangler secret put`), so it
@@ -101,6 +102,10 @@ app.route('/issues', issues);
 
 // Projects feature — same resolved session; issues can be linked to a project.
 app.route('/projects', projects);
+
+// Comments feature — mounted with the :issue_number param so the sub-app can
+// read it and resolve the issue's uuid for comments.issue_id.
+app.route('/issues/:issue_number/comments', comments);
 
 // Surface unhandled errors instead of silently turning them into a 500 body.
 // Log the method + path + message to Workers Logs, then rethrow so the runtime
