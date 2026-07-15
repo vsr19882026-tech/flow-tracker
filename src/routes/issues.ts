@@ -16,10 +16,26 @@ issues.post('/', async (c) => {
 
 	// Malformed JSON throws and propagates (see app.onError) — the happy path
 	// assumes a JSON body, per the project's no-try/catch rule.
-	const body = (await c.req.json()) as { title?: unknown };
+	const body = (await c.req.json()) as { title?: unknown; project_id?: unknown };
 	const title = typeof body.title === 'string' ? body.title.trim() : '';
 	if (!title) {
 		return c.json({ error: 'title is required' }, 400);
+	}
+
+	// An issue may optionally belong to a project. When a project_id is supplied,
+	// it must exist (404) and be owned by the caller (403) before we link it.
+	let projectId: string | null = null;
+	if (typeof body.project_id === 'string') {
+		const project = await c.env.DB.prepare('SELECT owner_id FROM projects WHERE id = ?')
+			.bind(body.project_id)
+			.first<{ owner_id: string }>();
+		if (!project) {
+			return c.json({ error: 'Not found' }, 404);
+		}
+		if (project.owner_id !== user.id) {
+			return c.json({ error: 'Forbidden' }, 403);
+		}
+		projectId = body.project_id;
 	}
 
 	const id = crypto.randomUUID();
@@ -29,14 +45,14 @@ issues.post('/', async (c) => {
 	// issue_number auto-increments from the current max; RETURNING hands back the
 	// value the subquery resolved to, in a single round-trip.
 	const row = await c.env.DB.prepare(
-		`INSERT INTO issues (id, reporter_id, title, status, issue_number, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(issue_number), 0) + 1 FROM issues), ?, ?)
+		`INSERT INTO issues (id, reporter_id, title, status, project_id, issue_number, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(issue_number), 0) + 1 FROM issues), ?, ?)
 		 RETURNING issue_number`,
 	)
-		.bind(id, user.id, title, status, now, now)
+		.bind(id, user.id, title, status, projectId, now, now)
 		.first<{ issue_number: number }>();
 
-	return c.json({ id, issue_number: row!.issue_number, title, status });
+	return c.json({ id, issue_number: row!.issue_number, title, status, project_id: projectId });
 });
 
 // GET /issues — list all issues, newest issue_number first.
