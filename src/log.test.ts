@@ -49,10 +49,10 @@ beforeEach(async () => {
 async function capture(channel: 'log' | 'error', fn: () => Promise<unknown>) {
 	const spy = vi.spyOn(console, channel).mockImplementation(() => {});
 	await fn();
+	// log() emits structured objects; keep the ones that carry an event field.
 	const lines = spy.mock.calls
 		.map((call) => call[0])
-		.filter((arg): arg is string => typeof arg === 'string')
-		.map((s) => JSON.parse(s) as Record<string, unknown>);
+		.filter((arg): arg is Record<string, unknown> => typeof arg === 'object' && arg !== null && 'event' in arg);
 	spy.mockRestore();
 	return lines;
 }

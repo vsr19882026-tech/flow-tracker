@@ -57,7 +57,9 @@ describe('unhandled error handling', () => {
 				body: 'not-json{',
 			}),
 		).rejects.toThrow(/is not valid JSON/);
-		const unhandled = spy.mock.calls.filter((call) => typeof call[0] === 'string' && call[0].includes('request.errored'));
+		const unhandled = spy.mock.calls.filter(
+			(call) => typeof call[0] === 'object' && call[0] !== null && (call[0] as { event?: string }).event === 'request.errored',
+		);
 		expect(unhandled.length).toBe(1);
 		spy.mockRestore();
 	});
