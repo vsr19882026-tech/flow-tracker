@@ -18,7 +18,8 @@ beforeEach(async () => {
 	await db
 		.prepare(
 			`CREATE TABLE "user" (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
-				emailVerified INTEGER NOT NULL DEFAULT 0, image TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)`,
+				emailVerified INTEGER NOT NULL DEFAULT 0, image TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
+				role TEXT NOT NULL DEFAULT 'member')`,
 		)
 		.run();
 	await db

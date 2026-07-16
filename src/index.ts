@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import { createAuth, emailGuard } from './auth';
 import { checkMagicLinkRateLimit } from './rate-limit';
 import { log } from './log';
@@ -16,7 +17,7 @@ declare global {
 }
 
 type Variables = {
-	user: { id: string; email: string } | null;
+	user: { id: string; email: string; role: string } | null;
 	requestId: string;
 	logStart: number;
 };
@@ -53,15 +54,15 @@ app.use('*', async (c, next) => {
 		const rawToken = decodeURIComponent(match[1]).split('.')[0];
 		// expiresAt is stored as an ISO date string → compare with datetime('now'), not Date.now().
 		const row = await c.env.DB.prepare(
-			`SELECT u.id, u.email
+			`SELECT u.id, u.email, u.role
 			   FROM session s
 			   JOIN user u ON u.id = s.userId
 			  WHERE s.token = ? AND s.expiresAt > datetime('now')`,
 		)
 			.bind(rawToken)
-			.first<{ id: string; email: string }>();
+			.first<{ id: string; email: string; role: string }>();
 		if (row) {
-			c.set('user', { id: row.id, email: row.email });
+			c.set('user', { id: row.id, email: row.email, role: row.role });
 		}
 	}
 
@@ -136,6 +137,11 @@ app.route('/issues/:issue_number/attachments', attachments);
 // The rethrow re-enters onError at each Hono mounted-app / middleware boundary
 // it bubbles through, so tag the error and log only the first time we see it.
 app.onError((err, c) => {
+	// HTTPException (e.g. requireAdmin's 403) is a deliberate, expected response —
+	// return it directly rather than logging it as an error and rethrowing.
+	if (err instanceof HTTPException) {
+		return err.getResponse();
+	}
 	const tagged = err as Error & { logged?: boolean };
 	if (!tagged.logged) {
 		tagged.logged = true;

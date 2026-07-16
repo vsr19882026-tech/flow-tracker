@@ -1,14 +1,16 @@
 import { Hono } from 'hono';
+import { writeGuard, readGuard, projectIdFromBody, projectIdFromIssueNumber, noProject } from '../lib/authz';
 
 // Same shape the session middleware in index.ts sets via c.set('user', ...).
 type Variables = {
-	user: { id: string; email: string } | null;
+	user: { id: string; email: string; role: string } | null;
 };
 
 const issues = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// POST /issues — create an issue for the signed-in user.
-issues.post('/', async (c) => {
+// POST /issues — create an issue for the signed-in user. writeGuard has already
+// authorized the write against the body's project_id (canWrite).
+issues.post('/', writeGuard(projectIdFromBody), async (c) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
@@ -22,18 +24,15 @@ issues.post('/', async (c) => {
 		return c.json({ error: 'title is required' }, 400);
 	}
 
-	// An issue may optionally belong to a project. When a project_id is supplied,
-	// it must exist (404) and be owned by the caller (403) before we link it.
+	// An issue may optionally belong to a project. Authorization to write in that
+	// project is writeGuard's job; here we only confirm the project exists (404).
 	let projectId: string | null = null;
 	if (typeof body.project_id === 'string') {
-		const project = await c.env.DB.prepare('SELECT owner_id FROM projects WHERE id = ?')
+		const project = await c.env.DB.prepare('SELECT id FROM projects WHERE id = ?')
 			.bind(body.project_id)
-			.first<{ owner_id: string }>();
+			.first<{ id: string }>();
 		if (!project) {
 			return c.json({ error: 'Not found' }, 404);
-		}
-		if (project.owner_id !== user.id) {
-			return c.json({ error: 'Forbidden' }, 403);
 		}
 		projectId = body.project_id;
 	}
@@ -55,8 +54,9 @@ issues.post('/', async (c) => {
 	return c.json({ id, issue_number: row!.issue_number, title, status, project_id: projectId });
 });
 
-// GET /issues — list all issues, newest issue_number first.
-issues.get('/', async (c) => {
+// GET /issues — list all issues, newest issue_number first. The list spans
+// projects, so readGuard runs with no single project (any signed-in user reads).
+issues.get('/', readGuard(noProject), async (c) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
@@ -66,8 +66,9 @@ issues.get('/', async (c) => {
 	return c.json(results);
 });
 
-// GET /issues/:issue_number — read a single issue by its number.
-issues.get('/:issue_number', async (c) => {
+// GET /issues/:issue_number — read a single issue by its number. readGuard
+// authorizes against the issue's own project_id (canRead).
+issues.get('/:issue_number', readGuard(projectIdFromIssueNumber), async (c) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
@@ -95,7 +96,9 @@ const VALID_STATUSES = ['open', 'in_progress', 'done'];
 const VALID_PRIORITIES = ['low', 'medium', 'high'];
 
 // PATCH /issues/:issue_number — update any of title/description/status/priority.
-issues.patch('/:issue_number', async (c) => {
+// writeGuard authorizes the project-level write; the handler still enforces the
+// issue-level rule that only the reporter (or an admin) may edit it.
+issues.patch('/:issue_number', writeGuard(projectIdFromIssueNumber), async (c) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
@@ -149,10 +152,9 @@ issues.patch('/:issue_number', async (c) => {
 		return c.json({ error: 'Not found' }, 404);
 	}
 
-	// Only the reporter or an admin may update. Role lives on the Better Auth
-	// "user" table; the shared middleware exposes just {id,email}, so read it here.
-	const userRow = await c.env.DB.prepare('SELECT role FROM "user" WHERE id = ?').bind(user.id).first<{ role: string }>();
-	if (issue.reporter_id !== user.id && userRow?.role !== 'admin') {
+	// Only the reporter or an admin may update. The session middleware now carries
+	// the caller's role, so no extra lookup is needed.
+	if (issue.reporter_id !== user.id && user.role !== 'admin') {
 		return c.json({ error: 'Forbidden' }, 403);
 	}
 

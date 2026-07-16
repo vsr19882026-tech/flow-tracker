@@ -32,7 +32,8 @@ beforeEach(async () => {
 				emailVerified INTEGER NOT NULL DEFAULT 0,
 				image TEXT,
 				createdAt TEXT NOT NULL,
-				updatedAt TEXT NOT NULL
+				updatedAt TEXT NOT NULL,
+				role TEXT NOT NULL DEFAULT 'member'
 			)`,
 		)
 		.run();
@@ -59,6 +60,7 @@ beforeEach(async () => {
 				description TEXT,
 				status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','in_progress','done')),
 				issue_number INTEGER NOT NULL,
+				project_id TEXT,
 				created_at INTEGER NOT NULL,
 				updated_at INTEGER NOT NULL,
 				UNIQUE(issue_number)
