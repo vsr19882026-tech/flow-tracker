@@ -43,3 +43,24 @@ export async function sendInviteEmail(env: Env, to: string): Promise<void> {
 			`request a magic link and you're in.</p>`,
 	);
 }
+
+const README_URL = 'https://github.com/vsr19882026-tech/flow-tracker#readme';
+
+/**
+ * Send the one-time onboarding email a teammate receives on first sign-in.
+ * Same best-effort delivery caveat as sendEmail (verified recipients only).
+ */
+export async function sendOnboardingEmail(env: Env, to: string): Promise<void> {
+	await sendEmail(
+		env,
+		to,
+		'Welcome to Flow Tracker',
+		`<p>Welcome to Flow Tracker — you're all set. Here's how to get going:</p>` +
+			`<ul>` +
+			`<li><strong>File an issue.</strong> POST a title (and optional description, priority, and project) to <code>/issues</code>.</li>` +
+			`<li><strong>See your team's issues.</strong> List them at <code>/issues</code>, or open one at <code>/issues/&lt;number&gt;</code>.</li>` +
+			`<li><strong>Mention a teammate.</strong> Comment on an issue via <code>/issues/&lt;number&gt;/comments</code> and @name whoever should weigh in.</li>` +
+			`</ul>` +
+			`<p>Full guide: <a href="${README_URL}">the README</a>.</p>`,
+	);
+}

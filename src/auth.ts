@@ -5,6 +5,7 @@ import { Kysely } from 'kysely';
 import { D1Dialect } from 'kysely-d1';
 import { sendEmail } from './email';
 import { consumeInvite } from './lib/invites';
+import { sendOnboardingIfNeeded } from './lib/onboarding';
 
 // Individual addresses that may request a magic link, regardless of domain.
 // Keeps the project owner (a gmail address) on the allowlist.
@@ -64,6 +65,20 @@ export function createAuth(env: Env) {
 				create: {
 					after: async (user) => {
 						await consumeInvite(env.DB, user.email).then(
+							() => {},
+							() => {},
+						);
+					},
+				},
+			},
+			// Fires on every sign-in (magic-link verify creates a new session).
+			// sendOnboardingIfNeeded gates on users.onboarded_at, so the welcome
+			// email goes out exactly once — on the user's first sign-in. Swallowed
+			// so onboarding can never break sign-in.
+			session: {
+				create: {
+					after: async (session) => {
+						await sendOnboardingIfNeeded(env, session.userId).then(
 							() => {},
 							() => {},
 						);
