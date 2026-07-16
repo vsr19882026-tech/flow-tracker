@@ -5,17 +5,31 @@ import { Kysely } from 'kysely';
 import { D1Dialect } from 'kysely-d1';
 import { sendEmail } from './email';
 
-// Only these addresses may request a magic link. The Cloudflare send_email
-// binding also only delivers to verified destinations, but we gate earlier so
-// unknown addresses get a clean 403 instead of a downstream send failure.
+// Individual addresses that may request a magic link, regardless of domain.
+// Keeps the project owner (a gmail address) on the allowlist.
 const ALLOWED_EMAILS = ['vsr19882026@gmail.com'];
 
+// Any address at one of these domains may request a magic link. Teammates sign
+// in with their @shravyalabs.com address; the zone's Email Routing catch-all
+// delivers the magic link. Compared against the exact host after the last '@',
+// so a lookalike like evil-shravyalabs.com or shravyalabs.com.evil.com fails.
+const ALLOWED_DOMAINS = ['shravyalabs.com'];
+
 /**
- * Reject sign-in requests for addresses not on the allowlist.
- * Returns a 403 Response when blocked, or null when the email is allowed.
+ * Reject sign-in requests for addresses that are neither on the allowlist nor
+ * at an allowed domain. Returns a 403 Response when blocked, or null when the
+ * email is allowed. Matching is case-insensitive and ignores surrounding
+ * whitespace, mirroring how the rate limiter normalizes the address.
  */
 export function emailGuard(email: string | undefined): Response | null {
-	if (!email || !ALLOWED_EMAILS.includes(email)) {
+	const normalized = email?.trim().toLowerCase() ?? '';
+	const at = normalized.lastIndexOf('@');
+	const domain = at === -1 ? '' : normalized.slice(at + 1);
+	const allowed =
+		normalized.length > 0 &&
+		(ALLOWED_EMAILS.includes(normalized) || (domain.length > 0 && ALLOWED_DOMAINS.includes(domain)));
+
+	if (!allowed) {
 		return new Response(JSON.stringify({ error: 'Email not allowed' }), {
 			status: 403,
 			headers: { 'Content-Type': 'application/json' },
