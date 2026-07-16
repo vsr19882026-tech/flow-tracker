@@ -4,6 +4,7 @@ import { createAuth, emailGuard } from './auth';
 import { checkMagicLinkRateLimit } from './rate-limit';
 import { log } from './log';
 import { audit } from './middleware/audit';
+import { runBackup } from './lib/backup';
 import issues from './routes/issues';
 import attachments from './routes/attachments';
 import comments from './routes/comments';
@@ -165,4 +166,21 @@ app.onError((err, c) => {
 	throw err;
 });
 
-export default app;
+// The Worker exports both the HTTP handler (the Hono app) and a scheduled
+// handler for the nightly-backup Cron Trigger (0 3 * * *, see wrangler.toml).
+// The cron handler has no request context, so it logs a plain structured line
+// rather than going through `log()` (which reads from a Hono Context).
+export default {
+	fetch: app.fetch,
+	async scheduled(event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+		const result = await runBackup(env, event.scheduledTime);
+		console.log({
+			level: 'info',
+			event: 'backup.completed',
+			cron: event.cron,
+			key: result.key,
+			bytes: result.bytes,
+			pruned: result.deleted.length,
+		});
+	},
+} satisfies ExportedHandler<Env>;
