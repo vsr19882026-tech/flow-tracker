@@ -17,6 +17,11 @@ send_email = [
 [observability]
 enabled = true
 
+# Nightly D1 backup to R2 (see src/lib/backup.ts). 3am UTC, once a day — one
+# extra invocation per day, negligible against quota.
+[triggers]
+crons = ["0 3 * * *"]
+
 # D1 — primary relational store
 [[d1_databases]]
 binding = "DB"
