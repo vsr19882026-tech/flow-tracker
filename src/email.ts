@@ -22,3 +22,24 @@ export async function sendEmail(env: Env, to: string, subject: string, html: str
 	const message = new EmailMessage(FROM_ADDR, to, msg.asRaw());
 	await env.EMAIL.send(message);
 }
+
+const SIGN_IN_URL = 'https://tracker.shravyalabs.com';
+
+/**
+ * Send a bulk-invite email inviting a teammate to sign in to Flow Tracker.
+ *
+ * Same delivery caveat as sendEmail: the send_email binding only reaches
+ * verified recipients, so a real teammate address fails with
+ * E_RECIPIENT_NOT_ALLOWED. Callers treat the send as best-effort — a failed
+ * delivery must not roll back the invite row.
+ */
+export async function sendInviteEmail(env: Env, to: string): Promise<void> {
+	await sendEmail(
+		env,
+		to,
+		"You're invited to Flow Tracker",
+		`<p>You've been invited to Flow Tracker.</p>` +
+			`<p>Sign in with your work email at <a href="${SIGN_IN_URL}">${SIGN_IN_URL}</a> — ` +
+			`request a magic link and you're in.</p>`,
+	);
+}

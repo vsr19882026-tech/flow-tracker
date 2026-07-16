@@ -3,6 +3,7 @@ import type { FC, Child } from 'hono/jsx';
 import { requireAdmin, isValidUserRole, USER_ROLES } from '../lib/authz';
 import type { AuthUser } from '../lib/authz';
 import { parseInviteEmails } from '../lib/invites';
+import { sendInviteEmail } from '../email';
 import { buildExport } from '../lib/export';
 
 type Variables = { user: AuthUser | null };
@@ -137,21 +138,25 @@ admin.post('/users/:id/role', async (c) => {
 });
 
 // ---- GET /admin/invites ----
-type InviteRow = { email: string; invited_by_email: string; created_at: number };
+type InviteRow = { email: string; invited_by_email: string; created_at: number; consumed_at: number | null };
 
 admin.get('/invites', async (c) => {
 	const { results: invites } = await c.env.DB.prepare(
-		`SELECT i.email, i.created_at, u.email AS invited_by_email
+		`SELECT i.email, i.created_at, i.consumed_at, u.email AS invited_by_email
 		   FROM invites i
 		   JOIN "user" u ON u.id = i.invited_by
 		  ORDER BY i.created_at DESC`,
 	).all<InviteRow>();
 
+	const pending = invites.filter((i) => i.consumed_at === null).length;
+
 	return c.html(
 		<Layout title="Invites">
 			<div class="grid gap-8 md:grid-cols-[1fr_20rem]">
 				<div>
-					<h2 class="mb-4 text-base font-semibold">{invites.length} pending invites</h2>
+					<h2 class="mb-4 text-base font-semibold">
+						{invites.length} invites · {pending} pending
+					</h2>
 					<div class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
 						<table class="min-w-full divide-y divide-slate-200">
 							<thead class="bg-slate-50">
@@ -159,12 +164,13 @@ admin.get('/invites', async (c) => {
 									<Th>Email</Th>
 									<Th>Invited by</Th>
 									<Th>Created</Th>
+									<Th>Status</Th>
 								</tr>
 							</thead>
 							<tbody class="divide-y divide-slate-100">
 								{invites.length === 0 ? (
 									<tr>
-										<td colspan={3} class="px-3 py-6 text-center text-sm text-slate-400">
+										<td colspan={4} class="px-3 py-6 text-center text-sm text-slate-400">
 											No pending invites.
 										</td>
 									</tr>
@@ -174,6 +180,15 @@ admin.get('/invites', async (c) => {
 											<Td>{i.email}</Td>
 											<Td>{i.invited_by_email}</Td>
 											<Td>{new Date(i.created_at).toISOString().slice(0, 10)}</Td>
+											<Td>
+												{i.consumed_at === null ? (
+													<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Pending</span>
+												) : (
+													<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+														Accepted {new Date(i.consumed_at).toISOString().slice(0, 10)}
+													</span>
+												)}
+											</Td>
 										</tr>
 									))
 								)}
@@ -216,6 +231,11 @@ admin.post('/invites', async (c) => {
 				),
 			),
 		);
+		// Fire the invite emails via the Email Worker. Best-effort per address:
+		// delivery to an unverified recipient fails (send_email only reaches
+		// verified addresses), and a failed send must not roll back the invite
+		// rows already written — so swallow per-address errors (no try/catch).
+		await Promise.all(emails.map((email) => sendInviteEmail(c.env, email).then(() => {}, () => {})));
 	}
 	return c.redirect('/admin/invites');
 });

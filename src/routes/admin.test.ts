@@ -1,6 +1,6 @@
 import { env, SELF } from 'cloudflare:test';
 import { beforeEach, describe, it, expect } from 'vitest';
-import { parseInviteEmails } from '../lib/invites';
+import { parseInviteEmails, consumeInvite } from '../lib/invites';
 
 // Admin UI: admin-only access + the bulk-invite flow. The session middleware
 // resolves the caller's role from "user", so seed an admin and a plain member.
@@ -32,7 +32,10 @@ beforeEach(async () => {
 		)
 		.run();
 	await db
-		.prepare(`CREATE TABLE invites (id TEXT PRIMARY KEY, email TEXT NOT NULL, invited_by TEXT NOT NULL REFERENCES "user"(id), created_at INTEGER NOT NULL)`)
+		.prepare(
+			`CREATE TABLE invites (id TEXT PRIMARY KEY, email TEXT NOT NULL, invited_by TEXT NOT NULL REFERENCES "user"(id),
+				created_at INTEGER NOT NULL, consumed_at INTEGER)`,
+		)
 		.run();
 
 	const now = new Date().toISOString();
@@ -100,8 +103,50 @@ describe('POST /admin/invites', () => {
 		});
 		expect(res.status).toBe(302);
 
-		const { results } = await env.DB.prepare('SELECT email, invited_by FROM invites ORDER BY email').all<{ email: string; invited_by: string }>();
+		const { results } = await env.DB.prepare('SELECT email, invited_by, consumed_at FROM invites ORDER BY email').all<{
+			email: string;
+			invited_by: string;
+			consumed_at: number | null;
+		}>();
 		expect(results.map((r) => r.email)).toEqual(['a@northwind.dev', 'b@northwind.dev']);
 		expect(results.every((r) => r.invited_by === ADMIN_ID)).toBe(true);
+		// New invites start pending (a failed best-effort send must not block this).
+		expect(results.every((r) => r.consumed_at === null)).toBe(true);
+	});
+});
+
+describe('consumeInvite', () => {
+	it('6. stamps consumed_at once, idempotently, matching email case-insensitively', async () => {
+		await env.DB.prepare('INSERT INTO invites (id, email, invited_by, created_at) VALUES (?, ?, ?, ?)')
+			.bind('inv1', 'newbie@shravyalabs.com', ADMIN_ID, 1000)
+			.run();
+
+		// First sign-in stamps exactly one row (case-insensitive match).
+		const first = await consumeInvite(env.DB, 'Newbie@Shravyalabs.com');
+		expect(first).toBe(1);
+		const row = await env.DB.prepare('SELECT consumed_at FROM invites WHERE id = ?').bind('inv1').first<{ consumed_at: number }>();
+		expect(typeof row!.consumed_at).toBe('number');
+
+		// A second sign-in changes nothing (already consumed).
+		const second = await consumeInvite(env.DB, 'newbie@shravyalabs.com');
+		expect(second).toBe(0);
+	});
+});
+
+describe('GET /admin/invites', () => {
+	it('7. shows Pending for an unconsumed invite and Accepted for a consumed one', async () => {
+		await env.DB.prepare('INSERT INTO invites (id, email, invited_by, created_at, consumed_at) VALUES (?, ?, ?, ?, ?)')
+			.bind('inv_pending', 'pending@shravyalabs.com', ADMIN_ID, 1000, null)
+			.run();
+		await env.DB.prepare('INSERT INTO invites (id, email, invited_by, created_at, consumed_at) VALUES (?, ?, ?, ?, ?)')
+			.bind('inv_done', 'joined@shravyalabs.com', ADMIN_ID, 2000, 1_700_000_000_000)
+			.run();
+
+		const res = await SELF.fetch('http://tracker.test/admin/invites', { headers: { cookie: ADMIN_COOKIE } });
+		expect(res.status).toBe(200);
+		const html = await res.text();
+		expect(html).toContain('Pending');
+		expect(html).toContain('Accepted');
+		expect(html).toContain('1 pending'); // 2 invites, 1 pending
 	});
 });
