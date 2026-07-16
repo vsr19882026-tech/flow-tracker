@@ -8,6 +8,8 @@
 		"lib": ["es2024"],
     /* Specify what JSX code is generated. */
 		"jsx": "react-jsx",
+    /* Render JSX through Hono's server-side runtime (admin UI), not React. */
+		"jsxImportSource": "hono/jsx",
 
     /* Specify what module code is generated. */
 		"module": "es2022",
@@ -41,6 +43,6 @@
 			"node"
 		]
 	},
-	"exclude": ["test", "src/**/*.test.ts"],
-	"include": ["worker-configuration.d.ts", "src/**/*.ts"]
+	"exclude": ["test", "src/**/*.test.ts", "src/**/*.test.tsx"],
+	"include": ["worker-configuration.d.ts", "src/**/*.ts", "src/**/*.tsx"]
 }
