@@ -3,6 +3,7 @@ import type { FC, Child } from 'hono/jsx';
 import { requireAdmin, isValidUserRole, USER_ROLES } from '../lib/authz';
 import type { AuthUser } from '../lib/authz';
 import { parseInviteEmails } from '../lib/invites';
+import { buildExport } from '../lib/export';
 
 type Variables = { user: AuthUser | null };
 
@@ -388,6 +389,19 @@ admin.get('/audit', async (c) => {
 			</div>
 		</Layout>,
 	);
+});
+
+// ---- GET /admin/export ----
+// Streaming CSV/JSON export for compliance. Admin-only (this whole sub-app is
+// gated by requireAdmin). The streaming + capping lives in src/lib/export.ts.
+admin.get('/export', (c) => {
+	const bom = c.req.query('bom');
+	return buildExport(c.env.DB, {
+		type: c.req.query('type') ?? '',
+		format: c.req.query('format') ?? 'csv',
+		since: c.req.query('since'),
+		bom: bom === '1' || bom === 'true',
+	});
 });
 
 export default admin;
