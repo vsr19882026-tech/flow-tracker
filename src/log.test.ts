@@ -70,7 +70,7 @@ describe('structured request logging', () => {
 		expect(started!.route).toBe('/');
 		expect(completed!.route).toBe('/');
 		expect(typeof completed!.duration_ms).toBe('number');
-		expect(completed!.status).toBe(200);
+		expect(completed!.status).toBe(302); // '/' now redirects by auth state
 	});
 
 	it('uses the same request_id for started and completed of one request', async () => {

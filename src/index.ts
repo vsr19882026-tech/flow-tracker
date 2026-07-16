@@ -10,6 +10,7 @@ import attachments from './routes/attachments';
 import comments from './routes/comments';
 import projects from './routes/projects';
 import admin from './routes/admin';
+import ui from './routes/ui';
 
 // BETTER_AUTH_SECRET is a Worker secret (set via `wrangler secret put`), so it
 // isn't in the wrangler-generated Env. Merge it into the global Bindings type.
@@ -109,9 +110,10 @@ app.on(['POST', 'GET'], '/auth/*', async (c) => {
 	return auth.handler(c.req.raw);
 });
 
+// Root redirects by auth state: signed-in users land on the board, everyone
+// else on the sign-in page. The browser UI lives in the `ui` router below.
 app.get('/', (c) => {
-	const user = c.get('user');
-	return c.text(user ? `Flow Tracker — signed in as ${user.email}` : 'Flow Tracker');
+	return c.redirect(c.get('user') ? '/board' : '/sign-in');
 });
 
 // Session probe: 200 with the user when the session cookie resolves, else 401.
@@ -138,6 +140,10 @@ app.route('/issues/:issue_number/attachments', attachments);
 
 // Admin UI — server-rendered pages under /admin, gated by requireAdmin inside.
 app.route('/admin', admin);
+
+// Browser UI — server-rendered sign-in page and Jira-style board at /sign-in
+// and /board. Mounted at root so its paths sit alongside the JSON API.
+app.route('/', ui);
 
 // Surface unhandled errors instead of silently turning them into a 500 body.
 // Log the method + path + message to Workers Logs, then rethrow so the runtime

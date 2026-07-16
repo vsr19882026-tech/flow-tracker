@@ -7,13 +7,13 @@ import worker from './index';
 // D1 tables are needed — the session middleware skips the DB lookup when there
 // is no cookie.
 describe('flow-tracker worker', () => {
-	it('GET / returns the app name when unauthenticated (unit style)', async () => {
+	it('GET / redirects to /sign-in when unauthenticated (unit style)', async () => {
 		const request = new Request('http://example.com/');
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
-		expect(response.status).toBe(200);
-		expect(await response.text()).toBe('Flow Tracker');
+		expect(response.status).toBe(302);
+		expect(response.headers.get('location')).toBe('/sign-in');
 	});
 
 	it('GET /whoami returns 401 without a session (integration style)', async () => {
