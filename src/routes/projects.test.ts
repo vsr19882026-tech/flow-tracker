@@ -19,6 +19,7 @@ const OTHER_USER_EMAIL = 'other@example.com';
 // Apply a clean schema + a seeded authenticated session before each test.
 beforeEach(async () => {
 	const db = env.DB;
+	await db.exec('DROP TABLE IF EXISTS project_members');
 	await db.exec('DROP TABLE IF EXISTS issues');
 	await db.exec('DROP TABLE IF EXISTS projects');
 	await db.exec('DROP TABLE IF EXISTS session');
@@ -33,7 +34,8 @@ beforeEach(async () => {
 				emailVerified INTEGER NOT NULL DEFAULT 0,
 				image TEXT,
 				createdAt TEXT NOT NULL,
-				updatedAt TEXT NOT NULL
+				updatedAt TEXT NOT NULL,
+				role TEXT NOT NULL DEFAULT 'member'
 			)`,
 		)
 		.run();
@@ -76,6 +78,24 @@ beforeEach(async () => {
 				updated_at INTEGER NOT NULL,
 				UNIQUE(issue_number)
 			)`,
+		)
+		.run();
+	// project_members + the owner-membership trigger, mirroring 0005_rbac.sql, so
+	// seeding a project auto-grants its owner a membership the RBAC guard reads.
+	await db
+		.prepare(
+			`CREATE TABLE project_members (
+				project_id TEXT NOT NULL,
+				user_id TEXT NOT NULL,
+				role TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')),
+				PRIMARY KEY (project_id, user_id)
+			)`,
+		)
+		.run();
+	await db
+		.prepare(
+			`CREATE TRIGGER project_owner_membership AFTER INSERT ON projects
+			 BEGIN INSERT INTO project_members (project_id, user_id, role) VALUES (NEW.id, NEW.owner_id, 'owner'); END`,
 		)
 		.run();
 

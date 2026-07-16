@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
+import { writeGuard, readGuard, projectIdFromIssueNumber } from '../lib/authz';
 
 // Same shape the session middleware in index.ts sets via c.set('user', ...).
 type Variables = {
-	user: { id: string; email: string } | null;
+	user: { id: string; email: string; role: string } | null;
 };
 
 // Mounted at /issues/:issue_number/comments, so :issue_number is on every path.
@@ -26,8 +27,9 @@ async function resolveIssueId(c: {
 	return row ? row.id : null;
 }
 
-// POST /issues/:issue_number/comments — add a comment to an issue.
-comments.post('/', async (c) => {
+// POST /issues/:issue_number/comments — add a comment to an issue. writeGuard
+// authorizes against the parent issue's project (canWrite).
+comments.post('/', writeGuard(projectIdFromIssueNumber), async (c) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);
@@ -70,7 +72,8 @@ comments.post('/', async (c) => {
 });
 
 // GET /issues/:issue_number/comments — list the issue's comments, oldest first.
-comments.get('/', async (c) => {
+// readGuard authorizes against the parent issue's project (canRead).
+comments.get('/', readGuard(projectIdFromIssueNumber), async (c) => {
 	const user = c.get('user');
 	if (!user) {
 		return c.json({ error: 'Unauthorized' }, 401);

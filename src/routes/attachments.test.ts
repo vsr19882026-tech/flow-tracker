@@ -30,7 +30,8 @@ beforeEach(async () => {
 				emailVerified INTEGER NOT NULL DEFAULT 0,
 				image TEXT,
 				createdAt TEXT NOT NULL,
-				updatedAt TEXT NOT NULL
+				updatedAt TEXT NOT NULL,
+				role TEXT NOT NULL DEFAULT 'member'
 			)`,
 		)
 		.run();
