@@ -33,8 +33,8 @@ comments.post('/', async (c) => {
 		return c.json({ error: 'Unauthorized' }, 401);
 	}
 
-	const issueId = await resolveIssueId(c);
-	if (!issueId) {
+	const issueNumber = Number(c.req.param('issue_number'));
+	if (!Number.isInteger(issueNumber)) {
 		return c.json({ error: 'Not found' }, 404);
 	}
 
@@ -49,11 +49,24 @@ comments.post('/', async (c) => {
 	const id = crypto.randomUUID();
 	const createdAt = Date.now();
 
-	await c.env.DB.prepare(`INSERT INTO comments (id, issue_id, author_id, body, created_at) VALUES (?, ?, ?, ?, ?)`)
-		.bind(id, issueId, user.id, body, createdAt)
-		.run();
+	// Resolve issue_number → issues.id and insert in a single round-trip: the
+	// SELECT feeds the INSERT, and RETURNING hands back the persisted row. If no
+	// issue matches, zero rows are inserted, RETURNING yields nothing → 404.
+	// Mirrors the subquery pattern in issues.ts; halves the remote D1 latency of
+	// the previous resolve-then-insert (see docs/s3-traffic-findings.md #2).
+	const row = await c.env.DB.prepare(
+		`INSERT INTO comments (id, issue_id, author_id, body, created_at)
+		 SELECT ?, id, ?, ?, ? FROM issues WHERE issue_number = ?
+		 RETURNING id, issue_id, author_id, body, created_at`,
+	)
+		.bind(id, user.id, body, createdAt, issueNumber)
+		.first();
 
-	return c.json({ id, issue_id: issueId, author_id: user.id, body, created_at: createdAt });
+	if (!row) {
+		return c.json({ error: 'Not found' }, 404);
+	}
+
+	return c.json(row);
 });
 
 // GET /issues/:issue_number/comments — list the issue's comments, oldest first.
