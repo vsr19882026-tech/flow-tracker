@@ -4,6 +4,7 @@ import { kyselyAdapter } from '@better-auth/kysely-adapter';
 import { Kysely } from 'kysely';
 import { D1Dialect } from 'kysely-d1';
 import { sendEmail } from './email';
+import { consumeInvite } from './lib/invites';
 
 // Individual addresses that may request a magic link, regardless of domain.
 // Keeps the project owner (a gmail address) on the allowlist.
@@ -54,6 +55,22 @@ export function createAuth(env: Env) {
 		basePath: '/auth', // routes resolve as /auth/... not the default /api/auth/...
 		secret: env.BETTER_AUTH_SECRET,
 		database: kyselyAdapter(db, { type: 'sqlite' }),
+		// When a first-time invitee signs in, Better Auth creates their user row;
+		// stamp their pending invite as consumed at that moment. Best-effort: a
+		// failure here must never break sign-in, so swallow it (no try/catch) —
+		// the invite simply stays pending.
+		databaseHooks: {
+			user: {
+				create: {
+					after: async (user) => {
+						await consumeInvite(env.DB, user.email).then(
+							() => {},
+							() => {},
+						);
+					},
+				},
+			},
+		},
 		plugins: [
 			magicLink({
 				sendMagicLink: async ({ email, url }) => {
