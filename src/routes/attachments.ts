@@ -58,6 +58,27 @@ async function resolveIssueId(env: Env, issueNumberParam: string | undefined): P
 	return row ? row.id : null;
 }
 
+// GET /issues/:issue_number/attachments — list the issue's attachments (metadata
+// only; the download URL is presigned on demand via GET /:id). Oldest first.
+attachments.get('/', async (c) => {
+	const user = c.get('user');
+	if (!user) {
+		return c.json({ error: 'Unauthorized' }, 401);
+	}
+
+	const issueId = await resolveIssueId(c.env, c.req.param('issue_number'));
+	if (!issueId) {
+		return c.json({ error: 'Not found' }, 404);
+	}
+
+	const { results } = await c.env.DB.prepare(
+		'SELECT id, filename, mime, size, created_at FROM attachments WHERE issue_id = ? ORDER BY created_at ASC',
+	)
+		.bind(issueId)
+		.all();
+	return c.json(results);
+});
+
 // POST /issues/:issue_number/attachments — request a presigned R2 PUT URL.
 // Validates size + mime; does NOT write the DB row (that happens on /confirm).
 attachments.post('/', async (c) => {

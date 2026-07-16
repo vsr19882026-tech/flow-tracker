@@ -172,3 +172,31 @@ describe('GET /issues/:issue_number/attachments/:id', () => {
 		expect(hasExpiry(body.url)).toBe(true);
 	});
 });
+
+describe('GET /issues/:issue_number/attachments (list)', () => {
+	it('6. lists the issue attachments (metadata only) oldest first', async () => {
+		// Two attachments via the request -> confirm flow.
+		for (const name of ['first.png', 'second.pdf']) {
+			const mime = name.endsWith('.pdf') ? 'application/pdf' : 'image/png';
+			const reqRes = await post({ filename: name, mime, size: 2048 });
+			const requested = (await reqRes.json()) as { id: string; r2_key: string };
+			await SELF.fetch(`${base}/${requested.id}/confirm`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', cookie: AUTH_COOKIE },
+				body: JSON.stringify({ r2_key: requested.r2_key, filename: name, mime, size: 2048 }),
+			});
+		}
+
+		const res = await SELF.fetch(base, { headers: { cookie: AUTH_COOKIE } });
+		expect(res.status).toBe(200);
+		const list = (await res.json()) as Array<{ filename: string; size: number; mime: string; id: string }>;
+		expect(list).toHaveLength(2);
+		expect(list.map((a) => a.filename)).toEqual(['first.png', 'second.pdf']);
+		expect(list[0].size).toBe(2048);
+	});
+
+	it('7. requires auth', async () => {
+		const res = await SELF.fetch(base);
+		expect(res.status).toBe(401);
+	});
+});
