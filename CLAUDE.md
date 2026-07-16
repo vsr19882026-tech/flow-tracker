@@ -76,6 +76,11 @@ These are non-negotiable. Do not violate them even if asked casually.
   suspected route. Unhandled errors reach it because `app.onError` (`src/index.ts`)
   logs and **rethrows** — `wrangler tail --status error` filters on the exception
   outcome, so errors must propagate, not be swallowed into a 500 body.
+- **`docs/oncall.md`** — the on-call playbook: exact commands and decision
+  points for the four most likely incidents (prod 500s → rollback, D1 full →
+  prune `audit_log` + VACUUM, magic-link emails not arriving, a destructive
+  change shipped → rollback to a known-good version). Read it before touching
+  prod in an incident.
 - **No MCP servers.** See §MCP avoidance.
 - **Permissions** are pinned in `.claude/settings.json`: a wrangler/gh/git
   allow-list, and a deny-list for `--force`, `--no-verify`, `git reset --hard`,
