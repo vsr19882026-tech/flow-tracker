@@ -24,6 +24,7 @@ const NAV = [
 	['/admin/users', 'Users'],
 	['/admin/invites', 'Invites'],
 	['/admin/projects', 'Projects'],
+	['/admin/audit', 'Audit'],
 ] as const;
 
 const Layout: FC<{ title: string; children?: Child }> = (props) => (
@@ -257,6 +258,133 @@ admin.get('/projects', async (c) => {
 						))}
 					</tbody>
 				</table>
+			</div>
+		</Layout>,
+	);
+});
+
+// ---- GET /admin/audit ----
+type AuditRow = { actor_id: string; action: string; target_type: string; target_id: string; diff: string | null; created_at: number };
+const PAGE_SIZE = 50;
+
+admin.get('/audit', async (c) => {
+	const actor = c.req.query('actor')?.trim() ?? '';
+	const action = c.req.query('action')?.trim() ?? '';
+	const from = c.req.query('from')?.trim() ?? '';
+	const to = c.req.query('to')?.trim() ?? '';
+	const page = Math.max(1, Number(c.req.query('page') ?? '1') || 1);
+
+	// Build the WHERE clause from whichever filters were supplied.
+	const conditions: string[] = [];
+	const binds: unknown[] = [];
+	if (actor) {
+		conditions.push('actor_id = ?');
+		binds.push(actor);
+	}
+	if (action) {
+		conditions.push('action LIKE ?');
+		binds.push(`%${action}%`);
+	}
+	if (from && !Number.isNaN(Date.parse(from))) {
+		conditions.push('created_at >= ?');
+		binds.push(Date.parse(from));
+	}
+	if (to && !Number.isNaN(Date.parse(to))) {
+		// Inclusive of the whole `to` day.
+		conditions.push('created_at < ?');
+		binds.push(Date.parse(to) + 24 * 60 * 60 * 1000);
+	}
+	const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+	const { results: rows } = await c.env.DB.prepare(
+		`SELECT actor_id, action, target_type, target_id, diff, created_at
+		   FROM audit_log ${where}
+		  ORDER BY created_at DESC
+		  LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`,
+	)
+		.bind(...binds)
+		.all<AuditRow>();
+
+	const qs = (p: number) =>
+		`?${new URLSearchParams({ actor, action, from, to, page: String(p) }).toString()}`;
+
+	return c.html(
+		<Layout title="Audit log">
+			<form method="get" class="mb-6 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-4">
+				<label class="text-sm">
+					<span class="block text-xs font-medium text-slate-500">Actor id</span>
+					<input name="actor" value={actor} class="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+				</label>
+				<label class="text-sm">
+					<span class="block text-xs font-medium text-slate-500">Action contains</span>
+					<input name="action" value={action} placeholder="POST /issues" class="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+				</label>
+				<label class="text-sm">
+					<span class="block text-xs font-medium text-slate-500">From</span>
+					<input type="date" name="from" value={from} class="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+				</label>
+				<label class="text-sm">
+					<span class="block text-xs font-medium text-slate-500">To</span>
+					<input type="date" name="to" value={to} class="mt-1 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+				</label>
+				<button type="submit" class="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Filter</button>
+				<a href="/admin/audit" class="rounded-md px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100">Reset</a>
+			</form>
+
+			<div class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+				<table class="min-w-full divide-y divide-slate-200">
+					<thead class="bg-slate-50">
+						<tr>
+							<Th>When</Th>
+							<Th>Actor</Th>
+							<Th>Action</Th>
+							<Th>Target</Th>
+							<Th>Diff</Th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100">
+						{rows.length === 0 ? (
+							<tr>
+								<td colspan={5} class="px-3 py-6 text-center text-sm text-slate-400">
+									No audit entries match.
+								</td>
+							</tr>
+						) : (
+							rows.map((r) => (
+								<tr>
+									<Td>{new Date(r.created_at).toISOString().replace('T', ' ').slice(0, 19)}</Td>
+									<Td>{r.actor_id}</Td>
+									<Td>
+										<span class="font-mono text-xs">{r.action}</span>
+									</Td>
+									<Td>
+										{r.target_type}
+										{r.target_id ? ` #${r.target_id}` : ''}
+									</Td>
+									<Td>
+										<span class="font-mono text-xs text-slate-500">{r.diff ?? ''}</span>
+									</Td>
+								</tr>
+							))
+						)}
+					</tbody>
+				</table>
+			</div>
+
+			<div class="mt-4 flex items-center justify-between text-sm">
+				<span class="text-slate-500">Page {page}</span>
+				<div class="flex gap-2">
+					{page > 1 ? (
+						<a href={qs(page - 1)} class="rounded-md border border-slate-300 px-3 py-1 hover:bg-slate-100">
+							← Prev
+						</a>
+					) : null}
+					{rows.length === PAGE_SIZE ? (
+						<a href={qs(page + 1)} class="rounded-md border border-slate-300 px-3 py-1 hover:bg-slate-100">
+							Next →
+						</a>
+					) : null}
+				</div>
 			</div>
 		</Layout>,
 	);
