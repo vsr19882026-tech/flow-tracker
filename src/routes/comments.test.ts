@@ -115,7 +115,18 @@ describe('POST /issues/:issue_number/comments', () => {
 		expect(res.status).toBe(400);
 	});
 
-	it('3. returns 200 and persists the comment against the issue uuid when valid', async () => {
+	it('3. returns 404 when the issue_number does not exist', async () => {
+		const res = await SELF.fetch(`http://tracker.test/issues/9999/comments`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', cookie: AUTH_COOKIE },
+			body: JSON.stringify({ body: 'comment on a missing issue' }),
+		});
+		expect(res.status).toBe(404);
+		const { results } = await env.DB.prepare('SELECT * FROM comments').all();
+		expect(results.length).toBe(0);
+	});
+
+	it('4. returns 200 and persists the comment against the issue uuid when valid', async () => {
 		const res = await SELF.fetch(`http://tracker.test/issues/${ISSUE_NUMBER}/comments`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json', cookie: AUTH_COOKIE },
