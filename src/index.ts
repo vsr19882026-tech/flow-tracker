@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import { createAuth, emailGuard } from './auth';
 import { checkMagicLinkRateLimit } from './rate-limit';
 import { log } from './log';
+import { audit } from './middleware/audit';
 import issues from './routes/issues';
 import attachments from './routes/attachments';
 import comments from './routes/comments';
@@ -69,6 +70,10 @@ app.use('*', async (c, next) => {
 
 	return next();
 });
+
+// Audit middleware — after auth (needs the resolved user), before the handlers.
+// Records one audit_log row per write; reads pass straight through.
+app.use('*', audit);
 
 // Better Auth handler. Guard the allowlist BEFORE handing off: clone the raw
 // request to read the body (c.req.json() would consume the stream and Better
