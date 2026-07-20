@@ -3,6 +3,8 @@
 // Plain template strings (no JSX, no client framework) — interactivity is vanilla
 // JS injected per page.
 
+import { renderFields, DEFAULT_LAYOUT } from './layout/render';
+
 export type NavUser = { email: string; role: string };
 export type ProjectOption = { id: string; name: string };
 
@@ -113,20 +115,16 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px
 .banner.err { background: #FFEBE6; color: #BF2600; border: 1px solid #FFBDAD; }
 `;
 
-// The "+ Create" modal markup + its project options.
+// The "+ Create" modal markup. The field block (project/title/description) renders
+// through the field registry under the default layout — byte-for-byte the prior
+// hand-written markup.
 function createModal(projects: ProjectOption[]): string {
-	const options = projects.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
 	return `
 <div id="createOverlay" class="overlay"></div>
 <div id="createModal" class="modal-card hidden" role="dialog" aria-modal="true">
 	<h2>Create issue</h2>
 	<div id="createErr" class="banner err hidden"></div>
-	<label for="cProject">Project</label>
-	<select id="cProject"><option value="">(none)</option>${options}</select>
-	<label for="cTitle">Title <span class="muted">(required)</span></label>
-	<input type="text" id="cTitle" autocomplete="off">
-	<label for="cDesc">Description</label>
-	<textarea id="cDesc" rows="4"></textarea>
+	${renderFields(DEFAULT_LAYOUT, 'create', { projects })}
 	<div class="row-actions" style="justify-content:flex-end;margin-top:16px">
 		<button class="btn btn-subtle" id="cCancel">Cancel</button>
 		<button class="btn btn-primary" id="cSubmit">Create</button>

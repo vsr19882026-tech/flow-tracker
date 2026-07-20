@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { layout, escapeHtml } from '../lib/layout';
 import type { ProjectOption } from '../lib/layout';
+import { renderFields, DEFAULT_LAYOUT } from '../lib/layout/render';
 
 // Server-rendered browser UI: a sign-in page and a Jira-style board. No client
 // framework — interactivity is vanilla JS injected as a page script. All data is
@@ -137,13 +138,7 @@ function fmtWhen(v){ var ms = typeof v === 'number' ? v : Date.parse(v); return 
 var SKELETON =
 	'<a href="#" class="panel-close" id="pClose">\\u00d7</a>' +
 	'<div class="card-num" id="pNum"></div>' +
-	'<h2 id="pTitle"></h2>' +
-	'<div class="desc" id="pDesc"></div>' +
-	(CAN_WRITE ?
-		'<div class="section"><h3>Status</h3><div class="pills" id="pPills">' +
-		'<button class="pill" data-for="open">To Do</button>' +
-		'<button class="pill" data-for="in_progress">In Progress</button>' +
-		'<button class="pill" data-for="done">Done</button></div></div>' : '') +
+	${JSON.stringify(renderFields(DEFAULT_LAYOUT, 'detail', { canWrite: role !== 'viewer' }))} +
 	'<div class="section"><h3>Attachments</h3><div id="pAtts"></div>' +
 	(CAN_WRITE ? '<div class="row-actions"><input type="file" id="pFile"><button class="btn btn-subtle" id="pAttach">Attach file</button><span class="muted" id="pProg"></span></div>' : '') +
 	'</div>' +
