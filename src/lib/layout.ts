@@ -4,6 +4,7 @@
 // JS injected per page.
 
 import { renderFields, DEFAULT_LAYOUT } from './layout/render';
+import type { Layout } from './layout/render';
 
 export type NavUser = { email: string; role: string };
 export type ProjectOption = { id: string; name: string };
@@ -118,13 +119,13 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px
 // The "+ Create" modal markup. The field block (project/title/description) renders
 // through the field registry under the default layout — byte-for-byte the prior
 // hand-written markup.
-function createModal(projects: ProjectOption[]): string {
+function createModal(projects: ProjectOption[], activeLayout: Layout): string {
 	return `
 <div id="createOverlay" class="overlay"></div>
 <div id="createModal" class="modal-card hidden" role="dialog" aria-modal="true">
 	<h2>Create issue</h2>
 	<div id="createErr" class="banner err hidden"></div>
-	${renderFields(DEFAULT_LAYOUT, 'create', { projects })}
+	${renderFields(activeLayout, 'create', { projects })}
 	<div class="row-actions" style="justify-content:flex-end;margin-top:16px">
 		<button class="btn btn-subtle" id="cCancel">Cancel</button>
 		<button class="btn btn-primary" id="cSubmit">Create</button>
@@ -169,7 +170,7 @@ ${
 }
 
 // Render a full authenticated page: nav + body + optional per-page script.
-export function layout(opts: { title: string; user: NavUser; projects?: ProjectOption[]; body: string; script?: string }): string {
+export function layout(opts: { title: string; user: NavUser; projects?: ProjectOption[]; activeLayout?: Layout; body: string; script?: string }): string {
 	const canCreate = opts.user.role !== 'viewer';
 	const isAdmin = opts.user.role === 'admin';
 	return `<!DOCTYPE html>
@@ -193,7 +194,7 @@ export function layout(opts: { title: string; user: NavUser; projects?: ProjectO
 		</div>
 	</nav>
 	<main>${opts.body}</main>
-	${canCreate ? createModal(opts.projects ?? []) : ''}
+	${canCreate ? createModal(opts.projects ?? [], opts.activeLayout ?? DEFAULT_LAYOUT) : ''}
 	<script>${navScript(canCreate)}</script>
 	${opts.script ? `<script>${opts.script}</script>` : ''}
 </body>

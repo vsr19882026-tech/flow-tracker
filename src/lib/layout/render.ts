@@ -35,6 +35,11 @@ const FIELD_UI: Record<string, { label: string; createId?: string; detailId?: st
 	priority: { label: 'Priority', createId: 'cPriority' },
 };
 
+// The default display label for a field key (before any layout label override).
+export function fieldLabel(key: string): string {
+	return FIELD_UI[key]?.label ?? key;
+}
+
 // Render one field for a mode, or null when the field has no rendering there
 // (e.g. status isn't editable on the create form; project isn't shown in detail).
 function renderField(fieldKey: string, mode: RenderMode, label: string, ctx: RenderContext): string | null {

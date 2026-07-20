@@ -6,6 +6,9 @@ import { parseInviteEmails } from '../lib/invites';
 import { sendInviteEmail } from '../email';
 import { buildExport } from '../lib/export';
 import { replayOutbox } from '../lib/sap/replay';
+import { FIELD_REGISTRY } from '../lib/layout/registry';
+import { fieldLabel } from '../lib/layout/render';
+import { loadActiveLayout } from '../lib/layout/store';
 
 type Variables = { user: AuthUser | null };
 
@@ -29,6 +32,7 @@ const NAV = [
 	['/admin/projects', 'Projects'],
 	['/admin/audit', 'Audit'],
 	['/admin/integrations/sap', 'SAP'],
+	['/admin/layout', 'Layout'],
 ] as const;
 
 const Layout: FC<{ title: string; children?: Child }> = (props) => (
@@ -656,6 +660,152 @@ admin.post('/integrations/sap/replay', async (c) => {
 		return c.json({ error: 'Not found' }, 404);
 	}
 	return c.redirect('/admin/integrations/sap');
+});
+
+// ---- Layout Studio ----
+// Client script: SortableJS reorder + Save/Revert via fetch. No build step.
+const LAYOUT_STUDIO_SCRIPT = `(function(){
+	var list = document.getElementById('lfList');
+	if (window.Sortable) Sortable.create(list, { handle: '.handle', animation: 150 });
+	function collect(){
+		var fields = [];
+		list.querySelectorAll('.lf-row').forEach(function(row, i){
+			fields.push({ key: row.getAttribute('data-key'), order: i, visible: row.querySelector('.lf-visible').checked, label: row.querySelector('.lf-label').value, section: '' });
+		});
+		return fields;
+	}
+	document.getElementById('lfSave').addEventListener('click', function(){
+		fetch('/admin/layout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ fields: collect() }) })
+			.then(function(r){ if (r.ok) { location.reload(); } else { r.json().then(function(e){ alert(e.error || 'Save failed'); }); } });
+	});
+	var revert = document.getElementById('lfRevert');
+	if (revert) revert.addEventListener('click', function(){
+		fetch('/admin/layout/revert', { method: 'POST' })
+			.then(function(r){ if (r.ok) { location.reload(); } else { r.json().then(function(e){ alert(e.error || 'Revert failed'); }); } });
+	});
+})();`;
+
+type StudioRow = { key: string; label: string; visible: boolean };
+
+// ---- GET /admin/layout ----
+admin.get('/layout', async (c) => {
+	const active = await loadActiveLayout(c.env.DB);
+	const inLayout = new Set(active.fields.map((f) => f.field));
+	const rows: StudioRow[] = [
+		...active.fields.filter((f) => f.field in FIELD_REGISTRY).map((f) => ({ key: f.field, label: f.label ?? fieldLabel(f.field), visible: !f.hidden })),
+		...Object.keys(FIELD_REGISTRY)
+			.filter((k) => !inLayout.has(k))
+			.map((k) => ({ key: k, label: fieldLabel(k), visible: true })),
+	];
+
+	return c.html(
+		<Layout title="Layout Studio">
+			<p class="mb-4 text-sm text-slate-500">Drag to reorder, toggle visibility, and rename field labels. Title and status must stay visible.</p>
+			<div id="lfList" class="mb-6 space-y-2">
+				{rows.map((r) => {
+					const required = FIELD_REGISTRY[r.key].required;
+					return (
+						<div class="lf-row flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2" data-key={r.key}>
+							<span class="handle cursor-grab select-none text-slate-400">⠿</span>
+							<span class="w-32 font-mono text-sm">
+								{r.key}
+								{required ? <span class="ml-1 text-xs text-rose-600">(required)</span> : ''}
+							</span>
+							<input class="lf-label flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm" value={r.label} />
+							<label class="flex items-center gap-1 text-sm text-slate-600">
+								<input type="checkbox" class="lf-visible" checked={r.visible} /> visible
+							</label>
+						</div>
+					);
+				})}
+			</div>
+			<div class="flex gap-2">
+				<button id="lfSave" type="button" class="rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">
+					Save layout
+				</button>
+				<button id="lfRevert" type="button" class="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+					Revert to previous
+				</button>
+			</div>
+			<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+			<script dangerouslySetInnerHTML={{ __html: LAYOUT_STUDIO_SCRIPT }}></script>
+		</Layout>,
+	);
+});
+
+// ---- POST /admin/layout ----
+// Validate the submitted layout against the registry, then save it as a new
+// active version. Any failure leaves the active layout unchanged (400 before write).
+admin.post('/layout', async (c) => {
+	const user = c.get('user') as AuthUser;
+	const body = (await c.req.json()) as { fields?: Array<{ key?: unknown; order?: unknown; visible?: unknown; label?: unknown; section?: unknown }> };
+	const fields = Array.isArray(body.fields) ? body.fields : [];
+
+	// Every key exists in the registry.
+	for (const f of fields) {
+		if (typeof f.key !== 'string' || !(f.key in FIELD_REGISTRY)) {
+			return c.json({ error: `unknown field: ${String(f.key)}` }, 400);
+		}
+	}
+	// No duplicate keys.
+	const keys = fields.map((f) => f.key as string);
+	if (new Set(keys).size !== keys.length) {
+		return c.json({ error: 'duplicate field keys' }, 400);
+	}
+	// Orders are unique.
+	const orders = fields.map((f) => f.order);
+	if (new Set(orders).size !== orders.length) {
+		return c.json({ error: 'orders must be unique' }, 400);
+	}
+	// Required fields (title, status) are present and visible.
+	for (const [key, def] of Object.entries(FIELD_REGISTRY)) {
+		if (!def.required) continue;
+		const f = fields.find((ff) => ff.key === key);
+		if (!f || f.visible === false) {
+			return c.json({ error: `${key} is required and must stay visible` }, 400);
+		}
+	}
+
+	const layoutFields = [...fields]
+		.sort((a, b) => Number(a.order) - Number(b.order))
+		.map((f) => {
+			const lf: Record<string, unknown> = { field: f.key };
+			if (f.visible === false) lf.hidden = true;
+			if (typeof f.label === 'string' && f.label.trim() !== '') lf.label = f.label;
+			if (typeof f.section === 'string' && f.section.trim() !== '') lf.section = f.section;
+			return lf;
+		});
+
+	const maxV = await c.env.DB.prepare('SELECT COALESCE(MAX(version), 0) AS v FROM ui_layouts').first<{ v: number }>();
+	const version = (maxV?.v ?? 0) + 1;
+	await c.env.DB.batch([
+		c.env.DB.prepare('UPDATE ui_layouts SET active = 0 WHERE active = 1'),
+		c.env.DB.prepare('INSERT INTO ui_layouts (id, version, layout_json, created_by, created_at, active) VALUES (?, ?, ?, ?, ?, 1)').bind(
+			crypto.randomUUID(),
+			version,
+			JSON.stringify({ fields: layoutFields }),
+			user.id,
+			Date.now(),
+		),
+	]);
+	return c.json({ ok: true, version });
+});
+
+// ---- POST /admin/layout/revert ----
+admin.post('/layout/revert', async (c) => {
+	const current = await c.env.DB.prepare('SELECT version FROM ui_layouts WHERE active = 1 ORDER BY version DESC LIMIT 1').first<{ version: number }>();
+	if (!current) {
+		return c.json({ error: 'no active layout to revert' }, 400);
+	}
+	const prev = await c.env.DB.prepare('SELECT id FROM ui_layouts WHERE version < ? ORDER BY version DESC LIMIT 1').bind(current.version).first<{ id: string }>();
+	if (!prev) {
+		return c.json({ error: 'no previous version' }, 400);
+	}
+	await c.env.DB.batch([
+		c.env.DB.prepare('UPDATE ui_layouts SET active = 0 WHERE active = 1'),
+		c.env.DB.prepare('UPDATE ui_layouts SET active = 1 WHERE id = ?').bind(prev.id),
+	]);
+	return c.json({ ok: true });
 });
 
 export default admin;

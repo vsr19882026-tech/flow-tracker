@@ -13,6 +13,7 @@ const cookie = (t: string) => `better-auth.session=${t}`;
 
 beforeEach(async () => {
 	const db = env.DB;
+	await db.exec('DROP TABLE IF EXISTS ui_layouts');
 	await db.exec('DROP TABLE IF EXISTS issues');
 	await db.exec('DROP TABLE IF EXISTS projects');
 	await db.exec('DROP TABLE IF EXISTS session');
@@ -41,6 +42,9 @@ beforeEach(async () => {
 	await db
 		.prepare(`CREATE TABLE projects (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL)`)
 		.run();
+	// The board loads the active layout; with no rows loadActiveLayout falls back
+	// to the default, so the table just needs to exist.
+	await db.prepare(`CREATE TABLE ui_layouts (id TEXT PRIMARY KEY, version INTEGER NOT NULL, layout_json TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 0)`).run();
 
 	const now = new Date().toISOString();
 	for (const u of [ADMIN, MEMBER, VIEWER]) {

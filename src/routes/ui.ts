@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import { layout, escapeHtml } from '../lib/layout';
 import type { ProjectOption } from '../lib/layout';
-import { renderFields, DEFAULT_LAYOUT } from '../lib/layout/render';
+import { renderFields } from '../lib/layout/render';
+import type { Layout } from '../lib/layout/render';
+import { loadActiveLayout } from '../lib/layout/store';
 
 // Server-rendered browser UI: a sign-in page and a Jira-style board. No client
 // framework — interactivity is vanilla JS injected as a page script. All data is
@@ -118,13 +120,16 @@ ui.get('/board', async (c) => {
 		`<div id="panelOverlay" class="overlay"></div>` +
 		`<aside id="panel" class="panel" aria-hidden="true"></aside>`;
 
-	return c.html(layout({ title: 'Board · Flow Tracker', user, projects, body, script: boardScript(user.role) }));
+	// The active layout drives field order/visibility in the create modal and the
+	// detail panel — the Layout Studio (admin) edits it.
+	const activeLayout = await loadActiveLayout(c.env.DB);
+	return c.html(layout({ title: 'Board · Flow Tracker', user, projects, activeLayout, body, script: boardScript(user.role, activeLayout) }));
 });
 
 // Vanilla-JS board behaviour: slide-in detail panel, status pills, attachments,
 // comments, and deep-linking via ?issue=N. Written without backticks or ${} so it
 // embeds cleanly in this template literal; the only server value is ROLE.
-function boardScript(role: string): string {
+function boardScript(role: string, activeLayout: Layout): string {
 	return `
 var ROLE = ${JSON.stringify(role)};
 var CAN_WRITE = ROLE !== 'viewer';
@@ -138,7 +143,7 @@ function fmtWhen(v){ var ms = typeof v === 'number' ? v : Date.parse(v); return 
 var SKELETON =
 	'<a href="#" class="panel-close" id="pClose">\\u00d7</a>' +
 	'<div class="card-num" id="pNum"></div>' +
-	${JSON.stringify(renderFields(DEFAULT_LAYOUT, 'detail', { canWrite: role !== 'viewer' }))} +
+	${JSON.stringify(renderFields(activeLayout, 'detail', { canWrite: role !== 'viewer' }))} +
 	'<div class="section"><h3>Attachments</h3><div id="pAtts"></div>' +
 	(CAN_WRITE ? '<div class="row-actions"><input type="file" id="pFile"><button class="btn btn-subtle" id="pAttach">Attach file</button><span class="muted" id="pProg"></span></div>' : '') +
 	'</div>' +
