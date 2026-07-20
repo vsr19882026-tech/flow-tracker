@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { writeGuard, readGuard, projectIdFromBody, projectIdFromIssueNumber, noProject } from '../lib/authz';
 import { appendOutbox, outboxId } from '../lib/sap/outbox';
+import { FIELD_REGISTRY } from '../lib/layout/registry';
 
 // Same shape the session middleware in index.ts sets via c.set('user', ...).
 type Variables = {
@@ -20,10 +21,12 @@ issues.post('/', writeGuard(projectIdFromBody), async (c) => {
 	// Malformed JSON throws and propagates (see app.onError) — the happy path
 	// assumes a JSON body, per the project's no-try/catch rule.
 	const body = (await c.req.json()) as { title?: unknown; project_id?: unknown };
-	const title = typeof body.title === 'string' ? body.title.trim() : '';
-	if (!title) {
-		return c.json({ error: 'title is required' }, 400);
+	// Validation reads ONLY from the field registry, never from a layout.
+	const titleError = FIELD_REGISTRY.title.validate(body.title);
+	if (titleError) {
+		return c.json({ error: titleError }, 400);
 	}
+	const title = (body.title as string).trim();
 
 	// An issue may optionally belong to a project. Authorization to write in that
 	// project is writeGuard's job; here we confirm the project exists (404) and
@@ -109,9 +112,6 @@ issues.get('/:issue_number', readGuard(projectIdFromIssueNumber), async (c) => {
 	return c.json({ ...row, comments });
 });
 
-const VALID_STATUSES = ['open', 'in_progress', 'done'];
-const VALID_PRIORITIES = ['low', 'medium', 'high'];
-
 // PATCH /issues/:issue_number — update any of title/description/status/priority.
 // writeGuard authorizes the project-level write; the handler still enforces the
 // issue-level rule that only the reporter (or an admin) may edit it.
@@ -129,13 +129,15 @@ issues.patch('/:issue_number', writeGuard(projectIdFromIssueNumber), async (c) =
 	// Malformed JSON throws and propagates (see app.onError).
 	const body = (await c.req.json()) as { title?: unknown; description?: unknown; status?: unknown; priority?: unknown };
 
-	// Validate enum fields against the same sets as the DB CHECK constraints, so a
-	// bad value is a clean 400 rather than a 500 from the constraint — before any DB.
-	if (body.status !== undefined && (typeof body.status !== 'string' || !VALID_STATUSES.includes(body.status))) {
-		return c.json({ error: "status must be one of 'open', 'in_progress', 'done'" }, 400);
+	// Validate enum fields via the registry (the single source of field truth), so a
+	// bad value is a clean 400 rather than a 500 from the DB CHECK — before any DB.
+	if (body.status !== undefined) {
+		const e = FIELD_REGISTRY.status.validate(body.status);
+		if (e) return c.json({ error: e }, 400);
 	}
-	if (body.priority !== undefined && (typeof body.priority !== 'string' || !VALID_PRIORITIES.includes(body.priority))) {
-		return c.json({ error: "priority must be one of 'low', 'medium', 'high'" }, 400);
+	if (body.priority !== undefined) {
+		const e = FIELD_REGISTRY.priority.validate(body.priority);
+		if (e) return c.json({ error: e }, 400);
 	}
 
 	// Collect only the provided fields into a dynamic UPDATE set. `changed` mirrors
