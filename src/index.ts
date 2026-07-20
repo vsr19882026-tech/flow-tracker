@@ -216,8 +216,17 @@ export default {
 			await reconcileInbound(env);
 		}
 	},
-	// Queue consumer. Branch on the source queue; the inbound consumer lands later.
+	// Queue consumer. Branch on the source queue.
 	async queue(batch: MessageBatch, env: Env, _ctx: ExecutionContext): Promise<void> {
+		// The SAP integration is off unless an API base is configured (dormant
+		// deploys, and the test pool). Ack and drop rather than process against a
+		// missing endpoint — a synced project would otherwise loop via reconcile.
+		if (!env.SAP_API_BASE) {
+			for (const msg of batch.messages) {
+				msg.ack();
+			}
+			return;
+		}
 		if (batch.queue === 'sap-outbound') {
 			for (const msg of batch.messages) {
 				await processOutboundMessage(env, msg as unknown as OutboundMessage);
