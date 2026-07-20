@@ -60,7 +60,8 @@ beforeEach(async () => {
 				owner_id TEXT NOT NULL REFERENCES "user"(id),
 				name TEXT NOT NULL,
 				slug TEXT NOT NULL UNIQUE,
-				created_at INTEGER NOT NULL
+				created_at INTEGER NOT NULL,
+				sap_synced INTEGER NOT NULL DEFAULT 0
 			)`,
 		)
 		.run();
