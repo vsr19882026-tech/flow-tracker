@@ -12,6 +12,8 @@ export default defineWorkersConfig({
 						R2_ACCOUNT_ID: 'test-account',
 						R2_ACCESS_KEY_ID: 'test-key',
 						R2_SECRET_ACCESS_KEY: 'test-secret',
+						// Shared secret for the inbound SAP webhook HMAC (tests sign with this).
+						SAP_WEBHOOK_SECRET: 'test-webhook-secret',
 					},
 				},
 			},

@@ -7,6 +7,9 @@ import { audit } from './middleware/audit';
 import { runBackup } from './lib/backup';
 import { processOutboundMessage } from './lib/sap/outbound';
 import type { OutboundMessage } from './lib/sap/outbound';
+import { processInboundMessage } from './lib/sap/inbound';
+import type { InboundMessage } from './lib/sap/inbound';
+import sapInbound from './routes/sap-inbound';
 import issues from './routes/issues';
 import attachments from './routes/attachments';
 import comments from './routes/comments';
@@ -54,7 +57,9 @@ app.use('*', async (c, next) => {
 // Session middleware. Auth routes are public (you can't have a session before
 // signing in); every other route gets a session looked up directly from D1.
 app.use('*', async (c, next) => {
-	if (c.req.path.startsWith('/auth')) {
+	// /auth is public (no session before sign-in); /integrations is machine-to-
+	// machine (the SAP webhook authenticates by HMAC, not a session cookie).
+	if (c.req.path.startsWith('/auth') || c.req.path.startsWith('/integrations')) {
 		return next();
 	}
 
@@ -119,6 +124,9 @@ app.on(['POST', 'GET'], '/auth/*', async (c) => {
 	const auth = createAuth(c.env);
 	return auth.handler(c.req.raw);
 });
+
+// Inbound SAP webhook — HMAC-authenticated, outside the session middleware.
+app.route('/integrations/sap', sapInbound);
 
 // Root redirects by auth state: signed-in users land on the board, everyone
 // else on the sign-in page. The browser UI lives in the `ui` router below.
@@ -204,6 +212,10 @@ export default {
 		if (batch.queue === 'sap-outbound') {
 			for (const msg of batch.messages) {
 				await processOutboundMessage(env, msg as unknown as OutboundMessage);
+			}
+		} else if (batch.queue === 'sap-inbound') {
+			for (const msg of batch.messages) {
+				await processInboundMessage(env, msg as unknown as InboundMessage);
 			}
 		}
 	},
