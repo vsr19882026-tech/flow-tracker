@@ -17,10 +17,11 @@ send_email = [
 [observability]
 enabled = true
 
-# Nightly D1 backup to R2 (see src/lib/backup.ts). 3am UTC, once a day — one
-# extra invocation per day, negligible against quota.
+# Cron triggers (both dispatch to the `scheduled` handler; branch on event.cron):
+#   0 3 * * *   — nightly D1 backup to R2 (see src/lib/backup.ts).
+#   */10 * * * * — SAP reconcile tick (pull inbound changes / retry outbox).
 [triggers]
-crons = ["0 3 * * *"]
+crons = ["0 3 * * *", "*/10 * * * *"]
 
 # D1 — primary relational store
 [[d1_databases]]
@@ -45,3 +46,21 @@ preview_id = "e2296b656b0d43ca9dfad0af71629c74"
 [[r2_buckets]]
 binding = "ATTACHMENTS"
 bucket_name = "issue-attachments"
+
+# Queues — SAP Cloud ALM ITSM sync (Session 5). Producers enqueue work; consumers
+# drain it. sap-dlq is the dead-letter target for sap-outbound (no producer).
+[[queues.producers]]
+binding = "SAP_OUTBOUND"
+queue = "sap-outbound"
+
+[[queues.producers]]
+binding = "SAP_INBOUND"
+queue = "sap-inbound"
+
+[[queues.consumers]]
+queue = "sap-outbound"
+max_retries = 5
+dead_letter_queue = "sap-dlq"
+
+[[queues.consumers]]
+queue = "sap-inbound"
