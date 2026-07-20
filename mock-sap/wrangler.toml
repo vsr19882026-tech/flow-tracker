@@ -2,6 +2,11 @@ name = "mock-sap"
 main = "src/index.ts"
 compatibility_date = "2026-07-09"
 
+# Reachable at a custom subdomain (the account is custom-domain-oriented).
+routes = [
+  { pattern = "mock-sap.shravyalabs.com", custom_domain = true }
+]
+
 # The Flow Tracker inbound webhook URL that /trigger-status POSTs a signed change
 # to. Override per environment; defaults to the production tracker.
 [vars]

@@ -32,6 +32,12 @@ export default {
 			return Response.json({ access_token: 'mock-access-token', token_type: 'Bearer', expires_in: 3600 });
 		}
 
+		// Inbound reconcile poll — no server-driven changes, so always empty. (Status
+		// changes are pushed via /trigger-status instead.)
+		if (req.method === 'GET' && url.pathname === '/cases') {
+			return Response.json({ cases: [] });
+		}
+
 		if (req.method === 'PUT' && url.pathname === '/cases') {
 			const body = (await req.json()) as { externalReference?: string; status?: string; subject?: string };
 			const externalReference = body.externalReference ?? 'unknown';
