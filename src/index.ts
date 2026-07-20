@@ -5,6 +5,8 @@ import { checkMagicLinkRateLimit } from './rate-limit';
 import { log } from './log';
 import { audit } from './middleware/audit';
 import { runBackup } from './lib/backup';
+import { processOutboundMessage } from './lib/sap/outbound';
+import type { OutboundMessage } from './lib/sap/outbound';
 import issues from './routes/issues';
 import attachments from './routes/attachments';
 import comments from './routes/comments';
@@ -196,5 +198,13 @@ export default {
 			bytes: result.bytes,
 			pruned: result.deleted.length,
 		});
+	},
+	// Queue consumer. Branch on the source queue; the inbound consumer lands later.
+	async queue(batch: MessageBatch, env: Env, _ctx: ExecutionContext): Promise<void> {
+		if (batch.queue === 'sap-outbound') {
+			for (const msg of batch.messages) {
+				await processOutboundMessage(env, msg as unknown as OutboundMessage);
+			}
+		}
 	},
 } satisfies ExportedHandler<Env>;
