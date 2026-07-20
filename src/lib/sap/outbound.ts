@@ -1,6 +1,7 @@
 import { getSapToken } from './token';
 import { toSapCase, mapStatusOutbound } from './mapper';
 import type { FieldMapRow, StatusMapRow } from './mapper';
+import { resolveSapTarget } from './target';
 
 // A minimal view of a Queue message — the fields the outbound consumer uses. The
 // real Cloudflare Message satisfies this structurally.
@@ -28,6 +29,13 @@ async function markDead(env: Env, outboxId: string): Promise<void> {
 // Process one sap-outbound message: sync the issue change to SAP as a case
 // upsert, then ack / retry / dead-letter per the outcome.
 export async function processOutboundMessage(env: Env, msg: OutboundMessage): Promise<OutboundResult> {
+	// Which SAP the current mode points at (mock/real), or null when sync is off.
+	const target = await resolveSapTarget(env);
+	if (!target) {
+		msg.ack();
+		return { outcome: 'skipped', reason: 'sync_disabled' };
+	}
+
 	const { outboxId, issueId } = msg.body;
 
 	const row = await env.DB.prepare('SELECT id, seq, issue_id, event_type, payload, status FROM sap_outbox WHERE id = ?')
@@ -69,8 +77,8 @@ export async function processOutboundMessage(env: Env, msg: OutboundMessage): Pr
 	const payload = toSapCase(issue, fieldMap, statusMap);
 	payload.externalReference = externalRef;
 
-	const token = await getSapToken(env);
-	const res = await fetch(`${env.SAP_API_BASE}/cases`, {
+	const token = await getSapToken(env, target.tokenUrl);
+	const res = await fetch(`${target.base}/cases`, {
 		method: 'PUT',
 		headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
 		body: JSON.stringify(payload),

@@ -1,4 +1,5 @@
 import { getSapToken } from './token';
+import { resolveSapTarget } from './target';
 
 // Reconciliation, run by the */10 cron. Two safety nets for the queue path:
 //  - reconcileOutbound re-enqueues outbox rows that are still pending past a
@@ -11,6 +12,7 @@ const GRACE_MS = 5 * 60 * 1000;
 const WATERMARK_KEY = 'inbound_watermark';
 
 export async function reconcileOutbound(env: Env, now: number = Date.now()): Promise<number> {
+	if (!(await resolveSapTarget(env))) return 0;
 	const cutoff = now - GRACE_MS;
 	const { results } = await env.DB.prepare("SELECT id, issue_id FROM sap_outbox WHERE status = 'pending' AND created_at < ?")
 		.bind(cutoff)
@@ -25,11 +27,14 @@ export async function reconcileOutbound(env: Env, now: number = Date.now()): Pro
 }
 
 export async function reconcileInbound(env: Env, now: number = Date.now()): Promise<number> {
+	const target = await resolveSapTarget(env);
+	if (!target) return 0;
+
 	const state = await env.DB.prepare('SELECT watermark FROM sync_state WHERE key = ?').bind(WATERMARK_KEY).first<{ watermark: string }>();
 	const watermark = state?.watermark ?? '0';
 
-	const token = await getSapToken(env);
-	const res = await fetch(`${env.SAP_API_BASE}/cases?changedSince=${encodeURIComponent(watermark)}`, {
+	const token = await getSapToken(env, target.tokenUrl);
+	const res = await fetch(`${target.base}/cases?changedSince=${encodeURIComponent(watermark)}`, {
 		headers: { authorization: `Bearer ${token}` },
 	});
 	if (!res.ok) {

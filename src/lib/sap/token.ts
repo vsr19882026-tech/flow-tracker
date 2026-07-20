@@ -4,14 +4,14 @@
 
 const TOKEN_KEY = 'sap:token';
 
-export async function getSapToken(env: Env): Promise<string> {
+export async function getSapToken(env: Env, tokenUrl: string = env.SAP_TOKEN_URL): Promise<string> {
 	const cached = await env.CACHE.get(TOKEN_KEY);
 	if (cached) return cached;
 
 	// client_credentials grant, HTTP Basic from the client id/secret. A non-2xx
 	// throws (no try/catch): the queue consumer's retry/dead-letter handles it.
 	const basic = btoa(`${env.SAP_CLIENT_ID}:${env.SAP_CLIENT_SECRET}`);
-	const res = await fetch(env.SAP_TOKEN_URL, {
+	const res = await fetch(tokenUrl, {
 		method: 'POST',
 		headers: {
 			authorization: `Basic ${basic}`,

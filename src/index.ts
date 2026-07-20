@@ -211,7 +211,9 @@ export default {
 			});
 		}
 		// SAP reconcile tick: re-enqueue stuck outbox rows, poll SAP for changes.
-		if (event.cron === '*/10 * * * *') {
+		// Skip entirely when SAP isn't configured (dormant) so the tick can't error;
+		// the reconcile helpers also no-op unless a mode/target resolves.
+		if (event.cron === '*/10 * * * *' && env.SAP_API_BASE) {
 			await reconcileOutbound(env);
 			await reconcileInbound(env);
 		}

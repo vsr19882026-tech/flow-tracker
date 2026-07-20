@@ -9,6 +9,8 @@ import { replayOutbox } from '../lib/sap/replay';
 import { FIELD_REGISTRY } from '../lib/layout/registry';
 import { fieldLabel } from '../lib/layout/render';
 import { loadActiveLayout } from '../lib/layout/store';
+import { loadSapMode, setSapMode } from '../lib/sap/target';
+import type { SapMode } from '../lib/sap/target';
 
 type Variables = { user: AuthUser | null };
 
@@ -451,6 +453,7 @@ const DirSelect: FC<{ name: string; value: string }> = (props) => (
 // ---- GET /admin/integrations/sap ----
 admin.get('/integrations/sap', async (c) => {
 	const db = c.env.DB;
+	const { mode, mockBase } = await loadSapMode(c.env);
 	const linked = await db.prepare('SELECT COUNT(*) AS n FROM sap_links').first<{ n: number }>();
 	const dead = await db.prepare("SELECT COUNT(*) AS n FROM sap_outbox WHERE status = 'dead'").first<{ n: number }>();
 	const { results: state } = await db.prepare('SELECT key, watermark FROM sync_state ORDER BY key').all<StateRow>();
@@ -465,7 +468,29 @@ admin.get('/integrations/sap', async (c) => {
 			<div class="mb-6 flex flex-wrap gap-3">
 				<span class="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-700">{linked?.n ?? 0} linked issues</span>
 				<span class="rounded-full bg-rose-100 px-3 py-1 text-sm font-medium text-rose-700">{dead?.n ?? 0} dead (DLQ)</span>
+				<span class="rounded-full bg-slate-200 px-3 py-1 text-sm font-medium text-slate-700">mode: {mode}</span>
 			</div>
+
+			<h2 class="mb-2 text-base font-semibold">Sync mode</h2>
+			<form method="post" action="/admin/integrations/sap/mode" class="mb-8 flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-4">
+				<label class="text-sm">
+					<span class="mb-1 block text-slate-500">Mode</span>
+					<select name="mode" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm">
+						{(['off', 'mock', 'real'] as const).map((m) => (
+							<option value={m} selected={m === mode}>
+								{m}
+							</option>
+						))}
+					</select>
+				</label>
+				<label class="flex-1 text-sm">
+					<span class="mb-1 block text-slate-500">Mock base URL (mock mode)</span>
+					<input name="mock_base" value={mockBase ?? ''} placeholder="https://mock-sap.example.workers.dev" class="w-full rounded-md border border-slate-300 px-2 py-1 text-sm" />
+				</label>
+				<button type="submit" class="rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">
+					Save mode
+				</button>
+			</form>
 
 			<h2 class="mb-2 text-base font-semibold">Sync state</h2>
 			<div class="mb-8 overflow-x-auto rounded-lg border border-slate-200 bg-white">
@@ -645,6 +670,18 @@ admin.post('/integrations/sap/mappings', async (c) => {
 		stmts.push(c.env.DB.prepare('INSERT INTO sap_status_map (flow_status, sap_status, direction) VALUES (?, ?, ?)').bind(sf[i], ss[i], sd[i] ?? 'both'));
 	}
 	await c.env.DB.batch(stmts);
+	return c.redirect('/admin/integrations/sap');
+});
+
+// ---- POST /admin/integrations/sap/mode ----
+admin.post('/integrations/sap/mode', async (c) => {
+	const body = await c.req.parseBody();
+	const mode = String(body.mode ?? '');
+	if (mode !== 'off' && mode !== 'mock' && mode !== 'real') {
+		return c.json({ error: 'mode must be off, mock, or real' }, 400);
+	}
+	const raw = typeof body.mock_base === 'string' ? body.mock_base.trim() : '';
+	await setSapMode(c.env, mode as SapMode, raw !== '' ? raw : null);
 	return c.redirect('/admin/integrations/sap');
 });
 
