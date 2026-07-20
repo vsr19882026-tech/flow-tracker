@@ -57,7 +57,9 @@ const CODE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const SKIP_FILES = new Set(['.github/scripts/diff-review.mjs']);
 function skipFile(file) {
 	// .d.ts is generated (e.g. worker-configuration.d.ts) — not hand-written source.
-	return SKIP_FILES.has(file) || file.endsWith('.md') || file.endsWith('.d.ts');
+	// mock-sap/ is a separate standalone Worker with its own bindings; the env.X /
+	// import checks here are tuned to Flow Tracker's wrangler.toml, not the mock's.
+	return SKIP_FILES.has(file) || file.endsWith('.md') || file.endsWith('.d.ts') || file.startsWith('mock-sap/');
 }
 
 // ---------------------------------------------------------------------------

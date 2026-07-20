@@ -65,6 +65,20 @@ describe('SAP admin tab', () => {
 		expect(res.status).toBe(403);
 		await res.text(); // drain the body so the response stream doesn't outlive the test
 	});
+
+	it('an admin can switch the sync mode to mock', async () => {
+		const res = await SELF.fetch('http://tracker.test/admin/integrations/sap/mode', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: ADMIN_COOKIE },
+			body: 'mode=mock&mock_base=https://mock.example',
+			redirect: 'manual',
+		});
+		expect(res.status).toBe(302);
+		await res.text();
+
+		const page = await SELF.fetch('http://tracker.test/admin/integrations/sap', { headers: { cookie: ADMIN_COOKIE } });
+		expect((await page.text()).includes('mode: mock')).toBe(true);
+	});
 });
 
 describe('replayOutbox', () => {

@@ -1,0 +1,11 @@
+name = "mock-sap"
+main = "src/index.ts"
+compatibility_date = "2026-07-09"
+
+# The Flow Tracker inbound webhook URL that /trigger-status POSTs a signed change
+# to. Override per environment; defaults to the production tracker.
+[vars]
+FT_INBOUND_URL = "https://tracker.shravyalabs.com/integrations/sap/inbound"
+
+# SAP_WEBHOOK_SECRET is set as a secret (wrangler secret put) — the SAME value as
+# Flow Tracker's SAP_WEBHOOK_SECRET, so signatures verify on the receiving side.
