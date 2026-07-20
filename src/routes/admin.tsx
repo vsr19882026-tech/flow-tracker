@@ -5,6 +5,7 @@ import type { AuthUser } from '../lib/authz';
 import { parseInviteEmails } from '../lib/invites';
 import { sendInviteEmail } from '../email';
 import { buildExport } from '../lib/export';
+import { replayOutbox } from '../lib/sap/replay';
 
 type Variables = { user: AuthUser | null };
 
@@ -27,6 +28,7 @@ const NAV = [
 	['/admin/invites', 'Invites'],
 	['/admin/projects', 'Projects'],
 	['/admin/audit', 'Audit'],
+	['/admin/integrations/sap', 'SAP'],
 ] as const;
 
 const Layout: FC<{ title: string; children?: Child }> = (props) => (
@@ -422,6 +424,238 @@ admin.get('/export', (c) => {
 		since: c.req.query('since'),
 		bom: bom === '1' || bom === 'true',
 	});
+});
+
+// ---- SAP integration tab ----
+type DlqRow = { id: string; issue_id: string; event_type: string; created_at: number };
+type FieldMapRow = { flow_field: string; sap_field: string; direction: string; active: number };
+type StatusMapRow = { flow_status: string; sap_status: string; direction: string };
+type StateRow = { key: string; watermark: string | null };
+
+const MAP_DIRECTIONS = ['outbound', 'inbound', 'both'] as const;
+
+const DirSelect: FC<{ name: string; value: string }> = (props) => (
+	<select name={props.name} class="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm">
+		{MAP_DIRECTIONS.map((d) => (
+			<option value={d} selected={d === props.value}>
+				{d}
+			</option>
+		))}
+	</select>
+);
+
+// ---- GET /admin/integrations/sap ----
+admin.get('/integrations/sap', async (c) => {
+	const db = c.env.DB;
+	const linked = await db.prepare('SELECT COUNT(*) AS n FROM sap_links').first<{ n: number }>();
+	const dead = await db.prepare("SELECT COUNT(*) AS n FROM sap_outbox WHERE status = 'dead'").first<{ n: number }>();
+	const { results: state } = await db.prepare('SELECT key, watermark FROM sync_state ORDER BY key').all<StateRow>();
+	const { results: dlq } = await db
+		.prepare("SELECT id, issue_id, event_type, created_at FROM sap_outbox WHERE status = 'dead' ORDER BY created_at DESC")
+		.all<DlqRow>();
+	const { results: fieldMap } = await db.prepare('SELECT flow_field, sap_field, direction, active FROM sap_field_map ORDER BY flow_field').all<FieldMapRow>();
+	const { results: statusMap } = await db.prepare('SELECT flow_status, sap_status, direction FROM sap_status_map ORDER BY flow_status').all<StatusMapRow>();
+
+	return c.html(
+		<Layout title="SAP integration">
+			<div class="mb-6 flex flex-wrap gap-3">
+				<span class="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-700">{linked?.n ?? 0} linked issues</span>
+				<span class="rounded-full bg-rose-100 px-3 py-1 text-sm font-medium text-rose-700">{dead?.n ?? 0} dead (DLQ)</span>
+			</div>
+
+			<h2 class="mb-2 text-base font-semibold">Sync state</h2>
+			<div class="mb-8 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+				<table class="min-w-full divide-y divide-slate-200">
+					<thead class="bg-slate-50">
+						<tr>
+							<Th>Key</Th>
+							<Th>Watermark</Th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100">
+						{state.length === 0 ? (
+							<tr>
+								<Td>—</Td>
+								<Td>no sync yet</Td>
+							</tr>
+						) : (
+							state.map((s) => (
+								<tr>
+									<Td>{s.key}</Td>
+									<Td>{s.watermark ?? '—'}</Td>
+								</tr>
+							))
+						)}
+					</tbody>
+				</table>
+			</div>
+
+			<h2 class="mb-2 text-base font-semibold">Dead-letter queue</h2>
+			<div class="mb-8 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+				<table class="min-w-full divide-y divide-slate-200">
+					<thead class="bg-slate-50">
+						<tr>
+							<Th>Outbox id</Th>
+							<Th>Issue</Th>
+							<Th>Event</Th>
+							<Th>Replay</Th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-slate-100">
+						{dlq.length === 0 ? (
+							<tr>
+								<Td>—</Td>
+								<Td>nothing dead</Td>
+								<Td>—</Td>
+								<Td>—</Td>
+							</tr>
+						) : (
+							dlq.map((d) => (
+								<tr>
+									<Td>{d.id}</Td>
+									<Td>{d.issue_id}</Td>
+									<Td>{d.event_type}</Td>
+									<Td>
+										<form method="post" action="/admin/integrations/sap/replay">
+											<input type="hidden" name="outboxId" value={d.id} />
+											<button type="submit" class="rounded-md bg-slate-800 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700">
+												Replay
+											</button>
+										</form>
+									</Td>
+								</tr>
+							))
+						)}
+					</tbody>
+				</table>
+			</div>
+
+			<h2 class="mb-2 text-base font-semibold">Field &amp; status mappings</h2>
+			<form method="post" action="/admin/integrations/sap/mappings" class="space-y-6">
+				<div class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+					<table class="min-w-full divide-y divide-slate-200">
+						<thead class="bg-slate-50">
+							<tr>
+								<Th>Flow field</Th>
+								<Th>SAP field</Th>
+								<Th>Direction</Th>
+								<Th>Active</Th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-slate-100">
+							{fieldMap.map((f) => (
+								<tr>
+									<Td>
+										<input name="ff" value={f.flow_field} class="rounded-md border border-slate-300 px-2 py-1 text-sm" />
+									</Td>
+									<Td>
+										<input name="fs" value={f.sap_field} class="rounded-md border border-slate-300 px-2 py-1 text-sm" />
+									</Td>
+									<Td>
+										<DirSelect name="fd" value={f.direction} />
+									</Td>
+									<Td>
+										<select name="fa" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm">
+											<option value="1" selected={f.active === 1}>
+												yes
+											</option>
+											<option value="0" selected={f.active !== 1}>
+												no
+											</option>
+										</select>
+									</Td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+
+				<div class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+					<table class="min-w-full divide-y divide-slate-200">
+						<thead class="bg-slate-50">
+							<tr>
+								<Th>Flow status</Th>
+								<Th>SAP status</Th>
+								<Th>Direction</Th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-slate-100">
+							{statusMap.map((s) => (
+								<tr>
+									<Td>
+										<input name="sf" value={s.flow_status} class="rounded-md border border-slate-300 px-2 py-1 text-sm" />
+									</Td>
+									<Td>
+										<input name="ss" value={s.sap_status} class="rounded-md border border-slate-300 px-2 py-1 text-sm" />
+									</Td>
+									<Td>
+										<DirSelect name="sd" value={s.direction} />
+									</Td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+
+				<button type="submit" class="rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">
+					Save mappings
+				</button>
+			</form>
+		</Layout>,
+	);
+});
+
+// ---- POST /admin/integrations/sap/mappings ----
+// Full-replace upsert of both maps from the edited tables. Validates directions
+// before touching the DB so a bad value is a clean 400, not a broken map.
+admin.post('/integrations/sap/mappings', async (c) => {
+	const body = await c.req.parseBody({ all: true });
+	const arr = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : v === undefined ? [] : [String(v)]);
+	const ff = arr(body.ff);
+	const fs = arr(body.fs);
+	const fd = arr(body.fd);
+	const fa = arr(body.fa);
+	const sf = arr(body.sf);
+	const ss = arr(body.ss);
+	const sd = arr(body.sd);
+
+	const validDir = (d: string): boolean => (MAP_DIRECTIONS as readonly string[]).includes(d);
+	if (!fd.every(validDir) || !sd.every(validDir)) {
+		return c.json({ error: 'direction must be outbound, inbound, or both' }, 400);
+	}
+
+	const stmts = [c.env.DB.prepare('DELETE FROM sap_field_map'), c.env.DB.prepare('DELETE FROM sap_status_map')];
+	for (let i = 0; i < ff.length; i++) {
+		if (!ff[i] || !fs[i]) continue;
+		stmts.push(
+			c.env.DB.prepare('INSERT INTO sap_field_map (flow_field, sap_field, direction, transform, active) VALUES (?, ?, ?, NULL, ?)').bind(
+				ff[i],
+				fs[i],
+				fd[i] ?? 'both',
+				fa[i] === '1' ? 1 : 0,
+			),
+		);
+	}
+	for (let i = 0; i < sf.length; i++) {
+		if (!sf[i] || !ss[i]) continue;
+		stmts.push(c.env.DB.prepare('INSERT INTO sap_status_map (flow_status, sap_status, direction) VALUES (?, ?, ?)').bind(sf[i], ss[i], sd[i] ?? 'both'));
+	}
+	await c.env.DB.batch(stmts);
+	return c.redirect('/admin/integrations/sap');
+});
+
+// ---- POST /admin/integrations/sap/replay ----
+admin.post('/integrations/sap/replay', async (c) => {
+	const body = await c.req.parseBody();
+	const outboxId = typeof body.outboxId === 'string' ? body.outboxId : '';
+	if (!outboxId) {
+		return c.json({ error: 'outboxId is required' }, 400);
+	}
+	const replayed = await replayOutbox(c.env, outboxId);
+	if (!replayed) {
+		return c.json({ error: 'Not found' }, 404);
+	}
+	return c.redirect('/admin/integrations/sap');
 });
 
 export default admin;
