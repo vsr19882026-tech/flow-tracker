@@ -28,8 +28,9 @@ function isInbound(direction: string): boolean {
 	return direction === 'inbound' || direction === 'both';
 }
 
-// Translate a flow status to its SAP status (outbound direction). null if unmapped.
-function statusToSap(flowStatus: string, statusMap: StatusMapRow[]): string | null {
+// Translate a flow status to its SAP status (outbound direction). null if unmapped
+// — the outbound consumer treats that as a permanent failure and dead-letters.
+export function mapStatusOutbound(flowStatus: string, statusMap: StatusMapRow[]): string | null {
 	const row = statusMap.find((r) => r.flow_status === flowStatus && isOutbound(r.direction));
 	return row ? row.sap_status : null;
 }
@@ -52,7 +53,7 @@ export function toSapCase(
 		let value = issue[field.flow_field];
 		if (field.flow_field === 'status') {
 			if (typeof value !== 'string') continue;
-			const mapped = statusToSap(value, statusMap);
+			const mapped = mapStatusOutbound(value, statusMap);
 			if (mapped === null) continue;
 			value = mapped;
 		}
