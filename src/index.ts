@@ -12,11 +12,19 @@ import projects from './routes/projects';
 import admin from './routes/admin';
 import ui from './routes/ui';
 
-// BETTER_AUTH_SECRET is a Worker secret (set via `wrangler secret put`), so it
-// isn't in the wrangler-generated Env. Merge it into the global Bindings type.
+// Secrets set via `wrangler secret put` aren't in wrangler.toml, so they're not
+// in the wrangler-generated Env — merge them into the global Bindings type.
+// The SAP_* secrets back the SAP Cloud ALM ITSM sync; they stay unset until the
+// real-SAP path is activated (sync runs against mock SAP until then), so at
+// runtime they may be undefined and callers must guard before use.
 declare global {
 	interface Env {
 		BETTER_AUTH_SECRET: string;
+		SAP_TOKEN_URL: string;
+		SAP_CLIENT_ID: string;
+		SAP_CLIENT_SECRET: string;
+		SAP_API_BASE: string;
+		SAP_WEBHOOK_SECRET: string;
 	}
 }
 
