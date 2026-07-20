@@ -835,13 +835,16 @@ admin.post('/layout/revert', async (c) => {
 		return c.json({ error: 'no active layout to revert' }, 400);
 	}
 	const prev = await c.env.DB.prepare('SELECT id FROM ui_layouts WHERE version < ? ORDER BY version DESC LIMIT 1').bind(current.version).first<{ id: string }>();
-	if (!prev) {
-		return c.json({ error: 'no previous version' }, 400);
+	if (prev) {
+		await c.env.DB.batch([
+			c.env.DB.prepare('UPDATE ui_layouts SET active = 0 WHERE active = 1'),
+			c.env.DB.prepare('UPDATE ui_layouts SET active = 1 WHERE id = ?').bind(prev.id),
+		]);
+	} else {
+		// No earlier version — revert to the built-in default by clearing the active
+		// flag (loadActiveLayout then falls back to DEFAULT_LAYOUT).
+		await c.env.DB.prepare('UPDATE ui_layouts SET active = 0 WHERE active = 1').run();
 	}
-	await c.env.DB.batch([
-		c.env.DB.prepare('UPDATE ui_layouts SET active = 0 WHERE active = 1'),
-		c.env.DB.prepare('UPDATE ui_layouts SET active = 1 WHERE id = ?').bind(prev.id),
-	]);
 	return c.json({ ok: true });
 });
 

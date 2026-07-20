@@ -122,4 +122,12 @@ describe('Layout Studio', () => {
 		await res.text();
 		expect(await activeVersion()).toBe(1);
 	});
+
+	it('7. reverting the only version clears the active flag (back to the default)', async () => {
+		await save(baseFields()); // v1, the first custom layout
+		const res = await SELF.fetch('http://tracker.test/admin/layout/revert', { method: 'POST', headers: { cookie: ADMIN_COOKIE } });
+		expect(res.status).toBe(200);
+		await res.text();
+		expect(await activeVersion()).toBeNull(); // no active row → renderFields uses DEFAULT_LAYOUT
+	});
 });
