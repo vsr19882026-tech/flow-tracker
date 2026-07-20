@@ -5,6 +5,7 @@ import { checkMagicLinkRateLimit } from './rate-limit';
 import { log } from './log';
 import { audit } from './middleware/audit';
 import { runBackup } from './lib/backup';
+import { reconcileOutbound, reconcileInbound } from './lib/sap/reconcile';
 import { processOutboundMessage } from './lib/sap/outbound';
 import type { OutboundMessage } from './lib/sap/outbound';
 import { processInboundMessage } from './lib/sap/inbound';
@@ -190,22 +191,30 @@ app.onError((err, c) => {
 	throw err;
 });
 
-// The Worker exports both the HTTP handler (the Hono app) and a scheduled
-// handler for the nightly-backup Cron Trigger (0 3 * * *, see wrangler.toml).
-// The cron handler has no request context, so it logs a plain structured line
-// rather than going through `log()` (which reads from a Hono Context).
+// The Worker exports the HTTP handler (the Hono app), a scheduled handler for two
+// Cron Triggers (see wrangler.toml), and the queue consumer. The scheduled/queue
+// handlers have no request context, so they log plain structured lines rather than
+// going through `log()` (which reads from a Hono Context).
 export default {
 	fetch: app.fetch,
 	async scheduled(event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-		const result = await runBackup(env, event.scheduledTime);
-		console.log({
-			level: 'info',
-			event: 'backup.completed',
-			cron: event.cron,
-			key: result.key,
-			bytes: result.bytes,
-			pruned: result.deleted.length,
-		});
+		// Nightly D1 backup to R2.
+		if (event.cron === '0 3 * * *') {
+			const result = await runBackup(env, event.scheduledTime);
+			console.log({
+				level: 'info',
+				event: 'backup.completed',
+				cron: event.cron,
+				key: result.key,
+				bytes: result.bytes,
+				pruned: result.deleted.length,
+			});
+		}
+		// SAP reconcile tick: re-enqueue stuck outbox rows, poll SAP for changes.
+		if (event.cron === '*/10 * * * *') {
+			await reconcileOutbound(env);
+			await reconcileInbound(env);
+		}
 	},
 	// Queue consumer. Branch on the source queue; the inbound consumer lands later.
 	async queue(batch: MessageBatch, env: Env, _ctx: ExecutionContext): Promise<void> {
